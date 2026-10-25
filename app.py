@@ -1,426 +1,890 @@
 """
 ========================================================================================
-FICHE TP : DASHBOARD STATISTIQUE ET DÉTERMINATION AUTOMATIQUE DES TYPES DE VARIABLES
+ AutoSTAT — Dashboard statistique & détermination automatique des types de variables
 ========================================================================================
-Application Streamlit tout-en-un avec CSS/JS personnalisés, navigation latérale,
-chargement de fichier ou données de démonstration du TP, et toutes les visualisations
-et calculs statistiques détaillés dans le document 'tp_stat1.pdf'.
+Application Streamlit complète pour la fiche TP « Statistique descriptive » (2025-2026) :
+
+  • détection automatique des types de variables (Listing 3)
+  • tableaux statistiques et représentations graphiques (Listings 4 à 6)
+  • paramètres de position, de dispersion et de forme (Listing 7)
+  • interpolation linéaire sur histogramme (Listings 10 et 11)
+  • courbe cumulative et lecture des quantiles Me, Q1, Q2, Q3, D6 (Listing 12)
+  • diagramme de Tukey et détection des points aberrants (Listings 16 à 20)
+  • discrétisation discret -> continu (Listing 21)
+  • opération inverse : graphique -> tableau (Listings 21 à 23)
+  • dashboard de synthèse et exercices supplémentaires (Section 16 de la fiche)
+
+Interface : thème sombre / clair commutable, composants CSS personnalisés,
+graphiques Plotly thémés, tableaux HTML soignés.
 ========================================================================================
 """
 
-import streamlit as st
-import pandas as pd
+from __future__ import annotations
+
+import html as _html
+from string import Template
+
 import numpy as np
-import scipy.stats as stats
-import matplotlib.pyplot as plt
-import seaborn as sns
+import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-import io
-# iheb is gay
+import streamlit as st
+
 # -----------------------------------------------------------------------------
-# Configuration de la page Streamlit
+# Configuration de la page
 # -----------------------------------------------------------------------------
 st.set_page_config(
-    page_title="Dashboard Statistique Descriptive",
+    page_title="AutoSTAT · Dashboard statistique",
     page_icon="📊",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
 # -----------------------------------------------------------------------------
-# Injection de Styles CSS et Scripts JS Avancés
+# Thèmes (sombre / clair) — palette CSS + palette graphique Plotly
 # -----------------------------------------------------------------------------
-CUSTOM_CSS_JS = """
+THEMES = {
+    "dark": {
+        "css": {
+            "primary": "#6366f1",
+            "primary_strong": "#4338ca",
+            "primary_soft": "rgba(99, 102, 241, 0.16)",
+            "accent": "#22d3ee",
+            "success": "#10b981",
+            "warning": "#f59e0b",
+            "danger": "#ef4444",
+            "bg": "#0a1020",
+            "surface": "#111a2f",
+            "surface_2": "#16223c",
+            "border": "rgba(148, 163, 184, 0.16)",
+            "text": "#e8eefc",
+            "muted": "#93a4be",
+            "shadow": "0 24px 60px -30px rgba(2, 6, 23, 0.95)",
+            "grid": "rgba(148, 163, 184, 0.14)",
+            "glow1": "rgba(99, 102, 241, 0.22)",
+            "glow2": "rgba(34, 211, 238, 0.14)",
+            "sidebar_bg": "rgba(13, 20, 38, 0.94)",
+            "hero_a": "rgba(99, 102, 241, 0.24)",
+            "hero_b": "rgba(34, 211, 238, 0.14)",
+            "hero_c": "rgba(16, 185, 129, 0.10)",
+            "hero_from": "#ffffff",
+            "hero_to": "#a5b4fc",
+            "row_alt": "rgba(148, 163, 184, 0.05)",
+            "row_hover": "rgba(99, 102, 241, 0.13)",
+            "success_bg": "rgba(16, 185, 129, 0.09)",
+            "warn_bg": "rgba(245, 158, 11, 0.09)",
+            "danger_bg": "rgba(239, 68, 68, 0.09)",
+            "scroll": "rgba(148, 163, 184, 0.35)",
+            "b_blue": "#60a5fa",
+            "b_violet": "#c084fc",
+            "b_green": "#34d399",
+            "b_amber": "#fbbf24",
+            "b_gray": "#94a3b8",
+        },
+        "chart": {
+            "font": "#c7d2e4",
+            "title": "#e8eefc",
+            "grid": "rgba(148, 163, 184, 0.14)",
+            "colorway": ["#818cf8", "#22d3ee", "#34d399", "#fbbf24", "#fb7185", "#a78bfa"],
+            "hover_bg": "#16223c",
+            "pie_line": "#0a1020",
+        },
+    },
+    "light": {
+        "css": {
+            "primary": "#4f46e5",
+            "primary_strong": "#4338ca",
+            "primary_soft": "rgba(79, 70, 229, 0.10)",
+            "accent": "#0891b2",
+            "success": "#059669",
+            "warning": "#d97706",
+            "danger": "#dc2626",
+            "bg": "#f4f6fb",
+            "surface": "#ffffff",
+            "surface_2": "#eef2f9",
+            "border": "rgba(15, 23, 42, 0.10)",
+            "text": "#0f172a",
+            "muted": "#5b6b85",
+            "shadow": "0 24px 60px -34px rgba(15, 23, 42, 0.35)",
+            "grid": "rgba(15, 23, 42, 0.08)",
+            "glow1": "rgba(99, 102, 241, 0.13)",
+            "glow2": "rgba(6, 182, 212, 0.10)",
+            "sidebar_bg": "rgba(255, 255, 255, 0.94)",
+            "hero_a": "#eef2ff",
+            "hero_b": "#e0f7fb",
+            "hero_c": "#ecfdf5",
+            "hero_from": "#1e1b4b",
+            "hero_to": "#4f46e5",
+            "row_alt": "rgba(15, 23, 42, 0.025)",
+            "row_hover": "rgba(79, 70, 229, 0.08)",
+            "success_bg": "#ecfdf5",
+            "warn_bg": "#fffbeb",
+            "danger_bg": "#fef2f2",
+            "scroll": "rgba(15, 23, 42, 0.25)",
+            "b_blue": "#1d4ed8",
+            "b_violet": "#7c3aed",
+            "b_green": "#047857",
+            "b_amber": "#b45309",
+            "b_gray": "#475569",
+        },
+        "chart": {
+            "font": "#475569",
+            "title": "#0f172a",
+            "grid": "rgba(15, 23, 42, 0.08)",
+            "colorway": ["#4f46e5", "#0891b2", "#059669", "#d97706", "#e11d48", "#7c3aed"],
+            "hover_bg": "#ffffff",
+            "pie_line": "#ffffff",
+        },
+    },
+}
+
+CSS_TEMPLATE = """
 <style>
-/* Importation Police Moderne Inter / Outfit */
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 :root {
-    --primary: #6366f1;
-    --primary-light: #818cf8;
-    --primary-dark: #4338ca;
-    --secondary: #06b6d4;
-    --accent: #10b981;
-    --warning: #f59e0b;
-    --danger: #ef4444;
-    --bg-dark: #0f172a;
-    --card-bg: rgba(30, 41, 59, 0.7);
-    --border-color: rgba(255, 255, 255, 0.08);
+    --primary: ${primary};
+    --primary-strong: ${primary_strong};
+    --primary-soft: ${primary_soft};
+    --accent: ${accent};
+    --success: ${success};
+    --warning: ${warning};
+    --danger: ${danger};
+    --bg: ${bg};
+    --surface: ${surface};
+    --surface-2: ${surface_2};
+    --border: ${border};
+    --text: ${text};
+    --muted: ${muted};
+    --shadow: ${shadow};
+
+    /* Passerelle vers le thème natif Streamlit */
+    --primary-color: ${primary};
+    --background-color: ${bg};
+    --secondary-background-color: ${surface};
+    --text-color: ${text};
 }
 
-html, body, [class*="css"] {
-    font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif !important;
+html, body, [data-testid="stAppViewContainer"], [class*="css"] {
+    font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
-code, pre {
-    font-family: 'JetBrains Mono', monospace !important;
+code, pre, .mono { font-family: 'JetBrains Mono', ui-monospace, monospace !important; }
+
+.stApp {
+    background:
+        radial-gradient(1100px 520px at 12% -12%, ${glow1} 0%, transparent 62%),
+        radial-gradient(900px 480px at 108% -4%, ${glow2} 0%, transparent 58%),
+        var(--bg);
+    color: var(--text);
 }
 
-/* En-tête Hero Stylisé */
-.hero-header {
-    background: linear-gradient(135deg, rgba(99, 102, 241, 0.25) 0%, rgba(6, 182, 212, 0.25) 50%, rgba(16, 185, 129, 0.15) 100%);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 20px;
-    padding: 28px 36px;
-    margin-bottom: 25px;
+[data-testid="stHeader"] { background: transparent; }
+#MainMenu, footer { visibility: hidden; }
+.block-container { padding-top: 2.2rem; padding-bottom: 3rem; max-width: 1320px; }
+
+/* ---------------- Barre latérale ---------------- */
+[data-testid="stSidebar"] {
+    background: ${sidebar_bg};
+    border-right: 1px solid var(--border);
     backdrop-filter: blur(16px);
-    box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
-    position: relative;
-    overflow: hidden;
 }
+[data-testid="stSidebar"] .block-container { padding-top: 1.2rem; }
 
-.hero-header::after {
-    content: '';
-    position: absolute;
-    top: -50%;
-    right: -20%;
-    width: 300px;
-    height: 300px;
-    background: radial-gradient(circle, rgba(99, 102, 241, 0.35) 0%, transparent 70%);
-    pointer-events: none;
+.brand {
+    display: flex; align-items: center; gap: 12px;
+    padding: 6px 2px 16px;
 }
+.brand-logo {
+    width: 46px; height: 46px; border-radius: 15px; display: grid; place-items: center;
+    font-size: 1.45rem;
+    background: linear-gradient(145deg, var(--primary), var(--primary-strong));
+    box-shadow: 0 14px 30px -16px var(--primary);
+}
+.brand-name { font-size: 1.22rem; font-weight: 700; letter-spacing: -0.01em; color: var(--text); line-height: 1.1; }
+.brand-sub { font-size: 0.72rem; color: var(--muted); letter-spacing: 0.04em; }
 
+.side-title {
+    font-size: 0.66rem; letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--muted); font-weight: 700; margin: 16px 0 6px;
+}
+.divider { height: 1px; background: var(--border); margin: 16px 0; }
+
+/* ---------------- En-tête hero ---------------- */
+.hero {
+    position: relative; overflow: hidden;
+    border: 1px solid var(--border); border-radius: 22px;
+    padding: 26px 30px 22px; margin-bottom: 22px;
+    background: linear-gradient(135deg, ${hero_a} 0%, ${hero_b} 52%, ${hero_c} 100%);
+    box-shadow: var(--shadow);
+    animation: rise 0.45s ease-out both;
+}
+.hero::after {
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    background-image:
+        linear-gradient(${grid} 1px, transparent 1px),
+        linear-gradient(90deg, ${grid} 1px, transparent 1px);
+    background-size: 36px 36px;
+    mask-image: radial-gradient(circle at 74% 16%, #000 0%, transparent 72%);
+    -webkit-mask-image: radial-gradient(circle at 74% 16%, #000 0%, transparent 72%);
+    opacity: 0.55;
+}
+.hero-top { position: relative; z-index: 1; display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px; }
+.hero-eyebrow { font-size: 0.68rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
 .hero-title {
-    font-size: 2.2rem;
-    font-weight: 700;
-    background: linear-gradient(90deg, #ffffff 0%, #cbd5e1 50%, #818cf8 100%);
-    -webkit-background-clip: text;
+    margin: 6px 0 0; font-size: 2rem; line-height: 1.15; font-weight: 700; letter-spacing: -0.02em;
+    background: linear-gradient(90deg, ${hero_from} 0%, ${hero_to} 100%);
+    -webkit-background-clip: text; background-clip: text;
     -webkit-text-fill-color: transparent;
-    margin: 0;
-    line-height: 1.2;
+}
+.hero-sub { margin: 8px 0 0; color: var(--muted); font-size: 0.95rem; max-width: 780px; }
+.hero-chips { position: relative; z-index: 1; display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 12px; border-radius: 999px;
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--muted); font-size: 0.76rem; font-weight: 500;
+    max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
-.hero-subtitle {
-    color: #94a3b8;
-    font-size: 1.05rem;
-    margin-top: 8px;
-    font-weight: 400;
+/* ---------------- Titres de section ---------------- */
+.section-head { display: flex; align-items: center; gap: 14px; margin: 4px 0 18px; }
+.section-ico {
+    width: 46px; height: 46px; flex: 0 0 46px; border-radius: 15px;
+    display: grid; place-items: center; font-size: 1.25rem;
+    background: var(--primary-soft); border: 1px solid var(--border);
+}
+.section-head h2 { margin: 0; font-size: 1.38rem; font-weight: 700; letter-spacing: -0.01em; color: var(--text); }
+.section-head p { margin: 3px 0 0; color: var(--muted); font-size: 0.85rem; }
+.mini-title {
+    font-size: 0.72rem; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--muted); font-weight: 700; margin: 6px 0 10px;
 }
 
-/* Badges Stylisés */
-.type-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 14px;
-    border-radius: 9999px;
-    font-size: 0.82rem;
-    font-weight: 600;
-    letter-spacing: 0.03em;
-    text-transform: uppercase;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+/* ---------------- Badges de type ---------------- */
+.badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 12px; border-radius: 999px;
+    font-size: 0.72rem; font-weight: 600; letter-spacing: 0.04em;
+    text-transform: uppercase; border: 1px solid transparent; white-space: nowrap;
+}
+.badge-blue   { background: rgba(59, 130, 246, 0.16);  color: ${b_blue};   border-color: rgba(59, 130, 246, 0.38); }
+.badge-violet { background: rgba(168, 85, 247, 0.16);  color: ${b_violet}; border-color: rgba(168, 85, 247, 0.38); }
+.badge-green  { background: rgba(16, 185, 129, 0.16);  color: ${b_green};  border-color: rgba(16, 185, 129, 0.38); }
+.badge-amber  { background: rgba(245, 158, 11, 0.16);  color: ${b_amber};  border-color: rgba(245, 158, 11, 0.38); }
+.badge-gray   { background: rgba(148, 163, 184, 0.16); color: ${b_gray};   border-color: rgba(148, 163, 184, 0.38); }
+
+/* ---------------- Cartes KPI ---------------- */
+.kpi {
+    position: relative; overflow: hidden; height: 100%;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 16px; padding: 15px 18px;
+    transition: transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease;
+    animation: rise 0.4s ease-out both;
+}
+.kpi::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: linear-gradient(var(--primary), var(--accent));
+}
+.kpi:hover { transform: translateY(-3px); border-color: var(--primary); box-shadow: 0 18px 32px -24px var(--primary); }
+.kpi-label { font-size: 0.7rem; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.kpi-value { font-size: 1.5rem; font-weight: 700; color: var(--text); margin-top: 4px; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.kpi-sub { font-size: 0.74rem; color: var(--muted); margin-top: 3px; }
+
+/* ---------------- Callouts ---------------- */
+.callout {
+    display: flex; gap: 12px; align-items: flex-start;
+    border: 1px solid var(--border); border-left: 4px solid var(--primary);
+    border-radius: 0 14px 14px 0; background: var(--surface);
+    padding: 13px 16px; margin: 12px 0;
+}
+.callout.success { border-left-color: var(--success); background: ${success_bg}; }
+.callout.warn    { border-left-color: var(--warning); background: ${warn_bg}; }
+.callout.danger  { border-left-color: var(--danger);  background: ${danger_bg}; }
+.co-ico { font-size: 1.05rem; line-height: 1.35; }
+.co-title { font-weight: 700; color: var(--text); font-size: 0.9rem; }
+.co-body { color: var(--muted); font-size: 0.86rem; line-height: 1.55; margin-top: 2px; }
+.co-body b, .co-body strong { color: var(--text); }
+.co-body code { background: var(--surface-2); border-radius: 6px; padding: 1px 5px; font-size: 0.8rem; }
+
+/* ---------------- Formules (KaTeX) ---------------- */
+.katex-display {
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-left: 4px solid var(--accent); border-radius: 0 14px 14px 0;
+    padding: 10px 16px; margin: 10px 0 !important; overflow-x: auto;
+}
+.katex { color: var(--text); }
+
+/* ---------------- Tableaux HTML ---------------- */
+.tbl-wrap {
+    overflow: auto; max-height: 460px;
+    border: 1px solid var(--border); border-radius: 14px;
+    background: var(--surface);
+}
+table.tp-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+table.tp-table thead th {
+    position: sticky; top: 0; z-index: 2;
+    background: var(--surface-2); color: var(--muted);
+    font-size: 0.7rem; font-weight: 700; letter-spacing: 0.06em;
+    text-transform: uppercase; text-align: center; white-space: nowrap;
+    padding: 10px 12px; border-bottom: 1px solid var(--border);
+}
+table.tp-table tbody td {
+    padding: 9px 12px; text-align: center; color: var(--text);
+    border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums;
+}
+table.tp-table tbody tr:nth-child(even) td { background: ${row_alt}; }
+table.tp-table tbody tr:hover td { background: ${row_hover}; }
+table.tp-table tbody tr:last-child td { border-bottom: none; }
+table.tp-table tbody td:first-child, table.tp-table thead th:first-child { text-align: left; }
+table.tp-table tbody td.na { color: var(--muted); }
+
+.tbl-caption { font-size: 0.76rem; color: var(--muted); margin: 8px 2px 4px; }
+
+/* ---------------- Widgets Streamlit ---------------- */
+.stButton > button, .stDownloadButton > button {
+    width: 100%;
+    background: linear-gradient(135deg, var(--primary), var(--primary-strong));
+    color: #ffffff !important; border: 1px solid transparent; border-radius: 12px;
+    font-weight: 600; font-size: 0.84rem; padding: 0.5rem 0.9rem;
+    box-shadow: 0 12px 26px -18px var(--primary);
+    transition: transform 0.18s ease, filter 0.18s ease;
+}
+.stButton > button:hover, .stDownloadButton > button:hover { transform: translateY(-1px); filter: brightness(1.08); }
+
+[data-baseweb="select"] > div,
+[data-baseweb="input"] > div,
+.stTextInput input, .stNumberInput input, .stDateInput input {
+    background: var(--surface) !important;
+    border-color: var(--border) !important;
+    color: var(--text) !important;
+    border-radius: 10px !important;
+}
+[data-baseweb="popover"] [role="listbox"], [data-baseweb="menu"] { background: var(--surface) !important; }
+[data-baseweb="menu"] li { color: var(--text) !important; }
+
+[data-testid="stWidgetLabel"] p, [data-testid="stWidgetLabel"] label {
+    color: var(--muted) !important; font-size: 0.82rem; font-weight: 500;
+}
+[data-testid="stRadio"] label p, [data-testid="stCheckbox"] label p { color: var(--text) !important; }
+
+[data-testid="stExpander"] {
+    border: 1px solid var(--border) !important; border-radius: 14px !important;
+    background: var(--surface); overflow: hidden;
+}
+[data-testid="stExpander"] summary { color: var(--text); font-weight: 600; }
+[data-testid="stExpander"] summary:hover { color: var(--primary); }
+
+.stTabs [data-baseweb="tab-list"] { gap: 0.35rem; border-bottom: 1px solid var(--border); }
+.stTabs [data-baseweb="tab"] {
+    height: 42px; padding: 0 15px; border-radius: 12px 12px 0 0;
+    color: var(--muted); font-weight: 600; font-size: 0.85rem;
+}
+.stTabs [aria-selected="true"] { color: var(--text) !important; background: var(--surface); }
+.stTabs [data-baseweb="tab-highlight"] { background: var(--primary); }
+
+[data-testid="stAlert"] { border-radius: 12px; border: 1px solid var(--border); }
+[data-testid="stFileUploaderDropzone"] {
+    background: var(--surface); border: 1px dashed var(--border); border-radius: 14px;
+}
+[data-testid="stSlider"] [role="slider"] { background: var(--primary); }
+[data-testid="stMetricValue"] { color: var(--text); }
+
+/* ---------------- Divers ---------------- */
+.small { font-size: 0.78rem; color: var(--muted); }
+.foot {
+    text-align: center; color: var(--muted); font-size: 0.78rem;
+    padding: 18px 0 4px; border-top: 1px solid var(--border); margin-top: 28px;
+}
+hr { border-color: var(--border); }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: ${scroll}; border-radius: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+@keyframes rise {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
 }
 
-.badge-nominale { background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.4); }
-.badge-ordinale { background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); }
-.badge-discrete { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); }
-.badge-continue { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); }
-
-/* Cartes Métriques Premium */
-.metric-card {
-    background: linear-gradient(145deg, rgba(30, 41, 59, 0.8), rgba(15, 23, 42, 0.9));
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 16px;
-    padding: 20px;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    position: relative;
-    overflow: hidden;
-}
-
-.metric-card:hover {
-    transform: translateY(-4px);
-    border-color: rgba(99, 102, 241, 0.4);
-    box-shadow: 0 12px 24px -10px rgba(99, 102, 241, 0.3);
-}
-
-.metric-label {
-    font-size: 0.85rem;
-    text-transform: uppercase;
-    color: #94a3b8;
-    letter-spacing: 0.05em;
-    font-weight: 600;
-}
-
-.metric-value {
-    font-size: 1.85rem;
-    font-weight: 700;
-    color: #f8fafc;
-    margin-top: 6px;
-}
-
-.metric-sub {
-    font-size: 0.8rem;
-    color: #64748b;
-    margin-top: 4px;
-}
-
-/* Boîte de formule mathématique élégante */
-.formula-box {
-    background: rgba(15, 23, 42, 0.85);
-    border-left: 4px solid #6366f1;
-    border-radius: 0 12px 12px 0;
-    padding: 16px 20px;
-    margin: 15px 0;
-    font-size: 0.95rem;
-}
-
-/* Callout d'Interprétation */
-.interp-box {
-    background: linear-gradient(90deg, rgba(16, 185, 129, 0.12) 0%, rgba(6, 182, 212, 0.08) 100%);
-    border-left: 4px solid #10b981;
-    border-radius: 0 12px 12px 0;
-    padding: 16px 20px;
-    margin: 15px 0;
-}
-
-.interp-warning {
-    background: linear-gradient(90deg, rgba(245, 158, 11, 0.12) 0%, rgba(239, 68, 68, 0.08) 100%);
-    border-left: 4px solid #f59e0b;
-    border-radius: 0 12px 12px 0;
-    padding: 16px 20px;
-    margin: 15px 0;
-}
-
-/* Boutons et Inputs */
-.stButton > button {
-    border-radius: 12px;
-    font-weight: 600;
-    transition: all 0.2s ease;
-    border: 1px solid rgba(255, 255, 255, 0.15);
-}
-
-.stButton > button:hover {
-    transform: scale(1.02);
-    box-shadow: 0 6px 18px rgba(99, 102, 241, 0.35);
-}
-
-/* Animation douce pour les éléments */
-@keyframes fadeIn {
-    from { opacity: 0; transform: translateY(8px); }
-    to { opacity: 1; transform: translateY(0); }
-}
-
-.animate-fade {
-    animation: fadeIn 0.4s ease-out forwards;
+@media (max-width: 900px) {
+    .hero { padding: 20px; }
+    .hero-title { font-size: 1.5rem; }
+    .section-head h2 { font-size: 1.18rem; }
 }
 </style>
-
-<script>
-// Petit script JS pour feedback interactif et scroll fluide
-document.addEventListener("DOMContentLoaded", function() {
-    console.log("Stat Dashboard Initialized with interactive JS features.");
-});
-</script>
 """
-st.markdown(CUSTOM_CSS_JS, unsafe_allow_html=True)
+
+# -----------------------------------------------------------------------------
+# Sélection du thème (lue avant l'injection CSS)
+# -----------------------------------------------------------------------------
+THEME_OPTIONS = ["🌙 Sombre", "☀️ Clair"]
+if "theme_radio" not in st.session_state:
+    st.session_state["theme_radio"] = THEME_OPTIONS[0]
+
+MODE = "dark" if "Sombre" in st.session_state["theme_radio"] else "light"
+THEME = THEMES[MODE]
+
+st.markdown(
+    Template(CSS_TEMPLATE).substitute(**THEME["css"]),
+    unsafe_allow_html=True,
+)
+
+# -----------------------------------------------------------------------------
+# Helpers d'interface
+# -----------------------------------------------------------------------------
+TYPE_META = {
+    "qualitative_nominale": ("Qualitative nominale", "badge-blue", "🏷️"),
+    "qualitative_ordinale": ("Qualitative ordinale", "badge-violet", "📈"),
+    "quantitative_discrete": ("Quantitative discrète", "badge-green", "🔢"),
+    "quantitative_continue": ("Quantitative continue", "badge-amber", "📏"),
+    "inconnu": ("Type inconnu", "badge-gray", "❓"),
+}
+
+TYPE_CHOICES = [
+    "qualitative_nominale",
+    "qualitative_ordinale",
+    "quantitative_discrete",
+    "quantitative_continue",
+]
+
+
+def md(content: str) -> None:
+    """Raccourci pour injecter du HTML."""
+    st.markdown(content, unsafe_allow_html=True)
+
+
+def esc(value) -> str:
+    return _html.escape(str(value))
+
+
+def badge_html(type_key: str) -> str:
+    label, css, icon = TYPE_META.get(type_key, TYPE_META["inconnu"])
+    return f'<span class="badge {css}">{icon} {esc(label)}</span>'
+
+
+def fmt_num(value, decimals: int = 2) -> str:
+    """Formate un nombre pour l'affichage (jamais d'exception)."""
+    if value is None:
+        return "—"
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return esc(value)
+    if not np.isfinite(number):
+        return "—"
+    return f"{number:,.{decimals}f}".replace(",", " ")
+
+
+def _fmt_float(value) -> str:
+    """Formatage compact utilisé par les tableaux HTML."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if not np.isfinite(number):
+        return "—"
+    if number == 0:
+        return "0"
+    absolute = abs(number)
+    if absolute >= 1000:
+        return f"{number:,.2f}".replace(",", " ")
+    if absolute >= 10:
+        return f"{number:.3f}".rstrip("0").rstrip(".")
+    if absolute >= 1:
+        return f"{number:.4f}".rstrip("0").rstrip(".")
+    return f"{number:.5f}".rstrip("0").rstrip(".")
+
+
+def show_table(data, caption: str = "", max_height: int = 460) -> None:
+    """Affiche un DataFrame en tableau HTML thémé (aucun canvas)."""
+    frame = data if isinstance(data, pd.DataFrame) else pd.DataFrame(data)
+    if caption:
+        md(f'<div class="tbl-caption">{esc(caption)}</div>')
+    if frame.empty:
+        md(callout("Tableau vide", "Aucune donnée à afficher.", "warn", "⚠️"))
+        return
+    html_table = frame.to_html(
+        index=False,
+        escape=True,
+        border=0,
+        classes="tp-table",
+        na_rep="—",
+        float_format=_fmt_float,
+    )
+    md(f'<div class="tbl-wrap" style="max-height:{int(max_height)}px">{html_table}</div>')
+
+
+def download_csv(frame: pd.DataFrame, filename: str, label: str, key: str) -> None:
+    st.download_button(
+        label,
+        frame.to_csv(index=False).encode("utf-8-sig"),
+        filename,
+        "text/csv",
+        key=key,
+    )
+
+
+def callout(title: str, body_html: str, kind: str = "info", icon: str = "ℹ️") -> str:
+    return (
+        f'<div class="callout {kind}">'
+        f'<div class="co-ico">{icon}</div>'
+        f'<div><div class="co-title">{esc(title)}</div>'
+        f'<div class="co-body">{body_html}</div></div></div>'
+    )
+
+
+def section_head(icon: str, title: str, subtitle: str = "") -> str:
+    sub = f"<p>{esc(subtitle)}</p>" if subtitle else ""
+    return (
+        f'<div class="section-head"><div class="section-ico">{icon}</div>'
+        f"<div><h2>{esc(title)}</h2>{sub}</div></div>"
+    )
+
+
+def kpi_html(label: str, value: str, sub: str = "") -> str:
+    return (
+        f'<div class="kpi"><div class="kpi-label">{esc(label)}</div>'
+        f'<div class="kpi-value">{value}</div>'
+        f'<div class="kpi-sub">{esc(sub)}</div></div>'
+    )
+
+
+def kpi_row(items) -> None:
+    """items = [(label, value, sub), ...] — affichés sur une ligne de colonnes."""
+    columns = st.columns(len(items))
+    for column, (label, value, sub) in zip(columns, items):
+        with column:
+            md(kpi_html(label, value, sub))
+
+
+def style_fig(fig, height: int = 400, title: str | None = None, showlegend=None):
+    """Applique le thème courant à une figure Plotly."""
+    chart = THEME["chart"]
+    if title is not None:
+        fig.update_layout(
+            title=dict(text=title, x=0.01, xanchor="left",
+                       font=dict(size=14, color=chart["title"]))
+        )
+    elif fig.layout.title.text:
+        fig.update_layout(
+            title=dict(text=fig.layout.title.text, x=0.01, xanchor="left",
+                       font=dict(size=14, color=chart["title"]))
+        )
+
+    fig.update_layout(
+        template=None,
+        height=height,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="Outfit, Segoe UI, sans-serif", size=12, color=chart["font"]),
+        colorway=chart["colorway"],
+        margin=dict(l=54, r=26, t=56, b=48),
+        hoverlabel=dict(
+            bgcolor=chart["hover_bg"],
+            bordercolor=THEME["css"]["border"],
+            font=dict(color=THEME["css"]["text"], family="Outfit, sans-serif"),
+        ),
+        legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color=chart["font"])),
+    )
+    fig.update_xaxes(
+        gridcolor=chart["grid"], zerolinecolor=chart["grid"],
+        linecolor=THEME["css"]["border"], tickfont=dict(color=chart["font"]),
+        title_font=dict(color=chart["font"]),
+    )
+    fig.update_yaxes(
+        gridcolor=chart["grid"], zerolinecolor=chart["grid"],
+        linecolor=THEME["css"]["border"], tickfont=dict(color=chart["font"]),
+        title_font=dict(color=chart["font"]),
+    )
+    if showlegend is not None:
+        fig.update_layout(showlegend=showlegend)
+    return fig
+
+
+def plot(fig, height: int = 400, title: str | None = None, showlegend=None) -> None:
+    style_fig(fig, height=height, title=title, showlegend=showlegend)
+    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+
+
+def callout_num(series: pd.Series, message: str = "Sélectionnez une variable quantitative.") -> bool:
+    """Vérifie qu'une série permet un traitement numérique."""
+    if not np.issubdtype(series.dtype, np.number):
+        md(callout("Variable non numérique", message, "warn", "⚠️"))
+        return False
+    if len(series.dropna()) < 3:
+        md(callout("Effectif insuffisant",
+                   "Au moins 3 valeurs sont nécessaires pour cette analyse.", "warn", "⚠️"))
+        return False
+    return True
 
 
 # -----------------------------------------------------------------------------
-# 1. Dataset Démo officiel du TP (Listing 2)
+# 1. Jeu de données de démonstration (Listing 2)
 # -----------------------------------------------------------------------------
 @st.cache_data
-def get_demo_dataset():
-    """Génère le jeu de données d'exemple fourni dans le TP (Listing 2)"""
+def get_demo_dataset() -> pd.DataFrame:
+    """Jeu de données officiel de la fiche TP (50 étudiants, 6 variables)."""
     data = {
-        'ID': list(range(1, 51)),
-        'Genre': ['M', 'F', 'M', 'F', 'M', 'F', 'M', 'F', 'M', 'F'] * 5,
-        'Niveau_Etude': [
-            'Licence', 'Master', 'Doctorat', 'Licence', 'Master',
-            'Licence', 'Master', 'Doctorat', 'Licence', 'Master'
+        "ID": list(range(1, 51)),
+        "Genre": ["M", "F", "M", "F", "M", "F", "M", "F", "M", "F"] * 5,
+        "Niveau_Etude": [
+            "Licence", "Master", "Doctorat", "Licence", "Master",
+            "Licence", "Master", "Doctorat", "Licence", "Master",
         ] * 5,
-        'Age': [20, 22, 25, 21, 23, 26, 24, 27, 20, 22] * 5,
-        'Note_Stats': [12.5, 15.0, 9.5, 17.0, 11.0, 14.5, 13.0, 16.5, 10.5, 18.0] * 5,
-        'Heures_Travail': [10, 15, 8, 20, 12, 18, 14, 16, 9, 22] * 5
+        "Age": [20, 22, 25, 21, 23, 26, 24, 27, 20, 22] * 5,
+        "Note_Stats": [12.5, 15.0, 9.5, 17.0, 11.0, 14.5, 13.0, 16.5, 10.5, 18.0] * 5,
+        "Heures_Travail": [10, 15, 8, 20, 12, 18, 14, 16, 9, 22] * 5,
     }
     return pd.DataFrame(data)
 
 
+def read_uploaded(file) -> pd.DataFrame | None:
+    """Lit un fichier CSV / Excel uploadé, avec détection du séparateur."""
+    if file is None:
+        return None
+    name = file.name.lower()
+    if name.endswith((".xlsx", ".xls")):
+        return pd.read_excel(file)
+
+    last_error = None
+    for encoding in ("utf-8-sig", "latin-1"):
+        try:
+            file.seek(0)
+            return pd.read_csv(file, sep=None, engine="python", encoding=encoding)
+        except Exception as exc:  # noqa: BLE001 - on tente l'encodage suivant
+            last_error = exc
+    try:
+        file.seek(0)
+        return pd.read_csv(file)
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError(str(last_error or exc)) from exc
+
+
 # -----------------------------------------------------------------------------
-# 2. Fonctions Métier du TP (Listings 3 à 21)
+# 2. Fonctions métier de la fiche TP
 # -----------------------------------------------------------------------------
 def detecter_type_variable(serie: pd.Series) -> str:
-    """
-    Détecte automatiquement le type statistique d'une variable selon l'algorithme du TP (Listing 3).
-    Retourne:
-    - 'qualitative_nominale'
-    - 'qualitative_ordinale'
-    - 'quantitative_discrete'
-    - 'quantitative_continue'
-    """
+    """Classification statistique automatique (Listing 3 de la fiche TP)."""
     serie_clean = serie.dropna()
     if len(serie_clean) == 0:
-        return 'inconnu'
+        return "inconnu"
 
     dtype = serie.dtype
     n_unique = serie_clean.nunique()
 
-    # Si chaîne, booléen, catégorie ou très peu de valeurs uniques
-    if dtype in ['object', 'category', 'bool'] or (not np.issubdtype(dtype, np.number) and n_unique < 10):
+    if dtype in ["object", "category", "bool"] or (
+        not np.issubdtype(dtype, np.number) and n_unique < 10
+    ):
         categories = serie_clean.unique()
-        mots_ordinaux = ['niveau', 'faible', 'moyen', 'eleve', 'licence', 'master', 'doctorat', 'primaire', 'secondaire']
+        mots_ordinaux = [
+            "niveau", "faible", "moyen", "eleve", "licence",
+            "master", "doctorat", "primaire", "secondaire",
+        ]
         ordre_possible = any(mot in str(categories).lower() for mot in mots_ordinaux)
-        return 'qualitative_ordinale' if ordre_possible else 'qualitative_nominale'
+        return "qualitative_ordinale" if ordre_possible else "qualitative_nominale"
 
-    elif np.issubdtype(dtype, np.number):
-        # Vérifie si toutes les valeurs sont entières
-        valeurs_entières = np.all(serie_clean == serie_clean.astype(int))
-        if valeurs_entières and n_unique <= 20:
-            return 'quantitative_discrete'
-        else:
-            return 'quantitative_continue'
+    if np.issubdtype(dtype, np.number):
+        try:
+            valeurs_entieres = bool(
+                np.all(np.isfinite(serie_clean))
+                and np.all(serie_clean == serie_clean.astype(int))
+            )
+        except (TypeError, ValueError):
+            valeurs_entieres = False
+        if valeurs_entieres and n_unique <= 20:
+            return "quantitative_discrete"
+        return "quantitative_continue"
 
-    return 'inconnu'
+    return "inconnu"
 
 
 def tableau_qualitatif(df: pd.DataFrame, colonne: str) -> pd.DataFrame:
-    """Génère le tableau statistique qualitatif (Listing 4)"""
-    effectifs = df[colonne].value_counts().sort_index()
-    frequences = df[colonne].value_counts(normalize=True).sort_index()
+    """Tableau statistique d'une variable qualitative (Listing 4)."""
+    serie = df[colonne].dropna()
+    effectifs = serie.value_counts().sort_index()
+    frequences = serie.value_counts(normalize=True).sort_index()
 
     tableau = pd.DataFrame({
-        'Modalité': effectifs.index,
-        'Effectif (n_i)': effectifs.values,
-        'Fréquence (f_i)': np.round(frequences.values, 4),
-        'Fréquence (%)': (frequences.values * 100).round(2)
+        "Modalité": effectifs.index,
+        "Effectif (n_i)": effectifs.values,
+        "Fréquence (f_i)": np.round(frequences.values, 4),
+        "Fréquence (%)": np.round(frequences.values * 100, 2),
     })
-    tableau['Fréquence cumulée'] = tableau['Fréquence (f_i)'].cumsum().round(4)
-    tableau['Fréquence cumulée (%)'] = (tableau['Fréquence cumulée'] * 100).round(2)
+    tableau["Fréquence cumulée"] = np.round(np.cumsum(tableau["Fréquence (f_i)"].values), 4)
+    tableau["Fréquence cumulée (%)"] = np.round(tableau["Fréquence cumulée"] * 100, 2)
     return tableau
 
 
 def tableau_quantitatif_discret(df: pd.DataFrame, colonne: str) -> pd.DataFrame:
-    """Génère le tableau statistique quantitatif discret (Listing 5)"""
-    effectifs = df[colonne].value_counts().sort_index()
-    frequences = df[colonne].value_counts(normalize=True).sort_index()
+    """Tableau statistique d'une variable quantitative discrète (Listing 5)."""
+    serie = df[colonne].dropna()
+    effectifs = serie.value_counts().sort_index()
+    frequences = serie.value_counts(normalize=True).sort_index()
 
-    tableau = pd.DataFrame({
-        'Valeur (x_i)': effectifs.index,
-        'Effectif (n_i)': effectifs.values,
-        'Fréquence (f_i)': np.round(frequences.values, 4),
-        'Fréquence (%)': (frequences.values * 100).round(2),
-        'Fréquence cumulée': frequences.values.cumsum().round(4),
-        'Fréquence cumulée (%)': (frequences.values.cumsum() * 100).round(2)
+    cumul = np.cumsum(frequences.values)
+    return pd.DataFrame({
+        "Valeur (x_i)": effectifs.index,
+        "Effectif (n_i)": effectifs.values,
+        "Fréquence (f_i)": np.round(frequences.values, 4),
+        "Fréquence (%)": np.round(frequences.values * 100, 2),
+        "Fréquence cumulée": np.round(cumul, 4),
+        "Fréquence cumulée (%)": np.round(cumul * 100, 2),
     })
-    return tableau
 
 
-# Règles de discrétisation (Listing 6)
 def creer_classes_sturges(serie: pd.Series):
-    """Règle de Sturges : k = 1 + 3.322 * log10(n)"""
-    n = len(serie.dropna())
+    """Règle de Sturges : k = 1 + 3.322 · log10(n)."""
+    serie = pd.Series(serie).dropna()
+    n = len(serie)
+    if n == 0:
+        return [0.0, 1.0], 1
+    minimum, maximum = float(serie.min()), float(serie.max())
+    if maximum == minimum:
+        return [minimum, minimum + 1.0], 1
     nb_classes = max(1, int(np.ceil(1 + 3.322 * np.log10(n))))
-    etendue = serie.max() - serie.min()
-    amplitude = etendue / nb_classes if nb_classes > 0 else 1
-    bornes = [serie.min() + i * amplitude for i in range(nb_classes + 1)]
-    bornes[-1] = serie.max()
+    amplitude = (maximum - minimum) / nb_classes
+    bornes = [minimum + i * amplitude for i in range(nb_classes + 1)]
+    bornes[-1] = maximum
     return bornes, nb_classes
 
 
 def creer_classes_yule(serie: pd.Series):
-    """Règle de Yule : k = 2.5 * n^(1/4)"""
-    n = len(serie.dropna())
+    """Règle de Yule : k = 2.5 · n^(1/4)."""
+    serie = pd.Series(serie).dropna()
+    n = len(serie)
+    if n == 0:
+        return [0.0, 1.0], 1
+    minimum, maximum = float(serie.min()), float(serie.max())
+    if maximum == minimum:
+        return [minimum, minimum + 1.0], 1
     nb_classes = max(1, int(np.ceil(2.5 * (n ** 0.25))))
-    etendue = serie.max() - serie.min()
-    amplitude = etendue / nb_classes if nb_classes > 0 else 1
-    bornes = [serie.min() + i * amplitude for i in range(nb_classes + 1)]
-    bornes[-1] = serie.max()
+    amplitude = (maximum - minimum) / nb_classes
+    bornes = [minimum + i * amplitude for i in range(nb_classes + 1)]
+    bornes[-1] = maximum
     return bornes, nb_classes
 
 
 def creer_classes_freedman_diaconis(serie: pd.Series):
-    """Règle de Freedman-Diaconis : h = 2 * IQR / n^(1/3)"""
-    serie_clean = serie.dropna()
-    n = len(serie_clean)
-    q25, q75 = np.percentile(serie_clean, [25, 75])
+    """Règle de Freedman-Diaconis : h = 2 · IQR / n^(1/3)."""
+    serie = pd.Series(serie).dropna()
+    n = len(serie)
+    if n == 0:
+        return [0.0, 1.0], 1
+    minimum, maximum = float(serie.min()), float(serie.max())
+    if maximum == minimum:
+        return [minimum, minimum + 1.0], 1
+    q25, q75 = np.percentile(serie, [25, 75])
     iqr = q75 - q25
-    h = 2 * iqr / (n ** (1 / 3)) if n > 0 else 1
+    h = 2 * iqr / (n ** (1 / 3)) if n > 0 else 0
     if h == 0 or np.isnan(h):
-        h = (serie_clean.max() - serie_clean.min()) / 10 if (serie_clean.max() - serie_clean.min()) > 0 else 1
-    etendue = serie_clean.max() - serie_clean.min()
-    nb_classes = max(1, int(np.ceil(etendue / h)))
-    bornes = [serie_clean.min() + i * h for i in range(nb_classes + 1)]
-    bornes[-1] = serie_clean.max()
+        h = (maximum - minimum) / 10
+    nb_classes = max(1, int(np.ceil((maximum - minimum) / h)))
+    bornes = [minimum + i * h for i in range(nb_classes + 1)]
+    bornes[-1] = maximum
     return bornes, nb_classes
 
 
-def tableau_quantitatif_continu(df: pd.DataFrame, colonne: str, methode: str = 'sturges') -> pd.DataFrame:
-    """Tableau de fréquences pour variable continue (Listing 6)"""
+def _bornes(serie: pd.Series, methode: str = "sturges"):
+    """Bornes de classes selon la règle demandée."""
+    if methode == "yule":
+        return creer_classes_yule(serie)[0]
+    if methode == "fd":
+        return creer_classes_freedman_diaconis(serie)[0]
+    return creer_classes_sturges(serie)[0]
+
+
+def tableau_quantitatif_continu(df: pd.DataFrame, colonne: str,
+                                methode: str = "sturges") -> pd.DataFrame:
+    """Tableau de fréquences d'une variable continue (Listing 6)."""
     serie = df[colonne].dropna()
-    if methode == 'sturges':
-        bornes, nb_classes = creer_classes_sturges(serie)
-    elif methode == 'yule':
-        bornes, nb_classes = creer_classes_yule(serie)
-    else:
-        bornes, nb_classes = creer_classes_freedman_diaconis(serie)
+    bornes = _bornes(serie, methode)
 
     effectifs, _ = np.histogram(serie, bins=bornes)
-    frequences = effectifs / len(serie)
+    frequences = effectifs / len(serie) if len(serie) else effectifs
     frequences_cumulees = np.cumsum(frequences)
-    labels = [f"[{bornes[i]:.2f} ; {bornes[i+1]:.2f}]" for i in range(len(bornes) - 1)]
+    labels = [f"[{bornes[i]:.2f} ; {bornes[i + 1]:.2f}]" for i in range(len(bornes) - 1)]
 
     return pd.DataFrame({
-        'Classe': labels,
-        'Borne Inf (L_i)': [round(bornes[i], 2) for i in range(len(bornes) - 1)],
-        'Borne Sup (L_i+1)': [round(bornes[i+1], 2) for i in range(len(bornes) - 1)],
-        'Amplitude (a_i)': [round(bornes[i+1] - bornes[i], 2) for i in range(len(bornes) - 1)],
-        'Effectif (n_i)': effectifs,
-        'Effectif Cumulé (N_i)': np.cumsum(effectifs),
-        'Fréquence (f_i)': frequences.round(4),
-        'Fréquence (%)': (frequences * 100).round(2),
-        'Fréquence cumulée': frequences_cumulees.round(4),
-        'Fréquence cumulée (%)': (frequences_cumulees * 100).round(2)
+        "Classe": labels,
+        "Borne Inf (L_i)": [round(bornes[i], 2) for i in range(len(bornes) - 1)],
+        "Borne Sup (L_i+1)": [round(bornes[i + 1], 2) for i in range(len(bornes) - 1)],
+        "Amplitude (a_i)": [round(bornes[i + 1] - bornes[i], 2) for i in range(len(bornes) - 1)],
+        "Effectif (n_i)": effectifs,
+        "Effectif Cumulé (N_i)": np.cumsum(effectifs),
+        "Fréquence (f_i)": np.round(frequences, 4),
+        "Fréquence (%)": np.round(frequences * 100, 2),
+        "Fréquence cumulée": np.round(frequences_cumulees, 4),
+        "Fréquence cumulée (%)": np.round(frequences_cumulees * 100, 2),
     })
 
 
-# Paramètres de Position et Dispersion (Listing 7)
 def parametres_position(serie: pd.Series) -> dict:
-    serie = serie.dropna()
-    mode_val = serie.mode()
-    mode_res = mode_val.iloc[0] if len(mode_val) > 0 else np.nan
+    """Paramètres de position (Listing 7)."""
+    serie = pd.Series(serie).dropna()
+    if len(serie) == 0:
+        return {}
+    mode_values = serie.mode()
+    mode_result = mode_values.iloc[0] if len(mode_values) > 0 else np.nan
     return {
-        'Effectif (n)': len(serie),
-        'Moyenne': serie.mean(),
-        'Médiane (Q2)': serie.median(),
-        'Mode': mode_res,
-        'Minimum': serie.min(),
-        'Maximum': serie.max(),
-        'Q1 (25%)': np.percentile(serie, 25),
-        'Q3 (75%)': np.percentile(serie, 75),
-        'D6 (60%)': np.percentile(serie, 60)
+        "Effectif (n)": len(serie),
+        "Moyenne": serie.mean(),
+        "Médiane (Q2)": serie.median(),
+        "Mode": mode_result,
+        "Minimum": serie.min(),
+        "Maximum": serie.max(),
+        "Q1 (25%)": np.percentile(serie, 25),
+        "Q3 (75%)": np.percentile(serie, 75),
+        "D6 (60%)": np.percentile(serie, 60),
     }
 
 
 def parametres_dispersion(serie: pd.Series) -> dict:
-    serie = serie.dropna()
+    """Paramètres de dispersion et de forme (Listing 7)."""
+    serie = pd.Series(serie).dropna()
+    if len(serie) == 0:
+        return {}
     q1, q3 = np.percentile(serie, [25, 75])
-    iqr = q3 - q1
-    ecart_type = serie.std(ddof=1) if len(serie) > 1 else 0
+    ecart_type = serie.std(ddof=1) if len(serie) > 1 else 0.0
     moyenne = serie.mean()
     cv = (ecart_type / moyenne * 100) if moyenne != 0 else np.nan
     return {
-        'Étendue': serie.max() - serie.min(),
-        'IQR (Q3 - Q1)': iqr,
-        'Variance (s²)': serie.var(ddof=1) if len(serie) > 1 else 0,
-        'Écart-type (s)': ecart_type,
-        'CV (%)': round(cv, 2) if not np.isnan(cv) else np.nan,
-        'Asymétrie (Skewness)': serie.skew() if len(serie) > 2 else np.nan,
-        'Aplatissement (Kurtosis)': serie.kurtosis() if len(serie) > 3 else np.nan
+        "Étendue": serie.max() - serie.min(),
+        "IQR (Q3 - Q1)": q3 - q1,
+        "Variance (s²)": serie.var(ddof=1) if len(serie) > 1 else 0.0,
+        "Écart-type (s)": ecart_type,
+        "CV (%)": round(cv, 2) if not np.isnan(cv) else np.nan,
+        "Asymétrie (Skewness)": serie.skew() if len(serie) > 2 else np.nan,
+        "Aplatissement (Kurtosis)": serie.kurtosis() if len(serie) > 3 else np.nan,
     }
 
 
-# Interpolation linéaire sur histogramme (Listing 10)
-def quantiles_par_interpolation(serie: pd.Series, methode: str = 'sturges') -> dict:
-    serie = serie.dropna()
+def quantile_interpole(serie: pd.Series, p: float, methode: str = "sturges") -> float:
+    """Quantile Q_p par interpolation linéaire dans la classe contenant le rang p·n."""
+    serie = pd.Series(serie).dropna()
+    if len(serie) == 0:
+        return np.nan
+    bornes = _bornes(serie, methode)
+    effectifs, _ = np.histogram(serie, bins=bornes)
+    cumul = np.cumsum(effectifs)
     n = len(serie)
+    cible = p * n
 
-    if methode == 'sturges':
-        bornes, k = creer_classes_sturges(serie)
-    elif methode == 'yule':
-        bornes, k = creer_classes_yule(serie)
-    else:
-        bornes, k = creer_classes_freedman_diaconis(serie)
+    i = int(np.searchsorted(cumul, cible, side="left"))
+    i = min(max(i, 0), len(effectifs) - 1)
+    avant = 0.0 if i == 0 else float(cumul[i - 1])
+    ni = float(effectifs[i])
+    amplitude = float(bornes[i + 1] - bornes[i])
+    if ni == 0:
+        return float(bornes[i])
+    return float(bornes[i] + ((cible - avant) / ni) * amplitude)
+
+
+def quantiles_par_interpolation(serie: pd.Series, methode: str = "sturges") -> dict:
+    """Détermine Q1, Me, D6, Q3 par interpolation, avec le détail de calcul (Listing 10)."""
+    serie = pd.Series(serie).dropna()
+    n = len(serie)
+    bornes = _bornes(serie, methode)
 
     effectifs, _ = np.histogram(serie, bins=bornes)
     effectifs_cum = np.cumsum(effectifs)
@@ -428,1316 +892,1716 @@ def quantiles_par_interpolation(serie: pd.Series, methode: str = 'sturges') -> d
 
     def interpoler(p):
         cible = p * n
-        i = np.searchsorted(effectifs_cum, cible, side='left')
-        if i >= len(effectifs):
-            i = len(effectifs) - 1
-        N_avant = 0 if i == 0 else effectifs_cum[i - 1]
-        L_i = bornes[i]
+        i = int(np.searchsorted(effectifs_cum, cible, side="left"))
+        i = min(max(i, 0), len(effectifs) - 1)
+        avant = 0 if i == 0 else effectifs_cum[i - 1]
+        l_i = bornes[i]
         n_i = effectifs[i]
         a_i = amplitudes[i]
-        val = L_i + ((cible - N_avant) / n_i) * a_i if n_i > 0 else L_i
-        return val, i, L_i, N_avant, n_i, a_i
+        valeur = l_i + ((cible - avant) / n_i) * a_i if n_i > 0 else l_i
+        return float(valeur), i, float(l_i), float(avant), float(n_i), float(a_i)
 
-    q1_val, idx_q1, l_q1, n_av_q1, n_i_q1, a_q1 = interpoler(0.25)
-    me_val, idx_me, l_me, n_av_me, n_i_me, a_me = interpoler(0.50)
-    q3_val, idx_q3, l_q3, n_av_q3, n_i_q3, a_q3 = interpoler(0.75)
-    d6_val, idx_d6, l_d6, n_av_d6, n_i_d6, a_d6 = interpoler(0.60)
+    q1 = interpoler(0.25)
+    me = interpoler(0.50)
+    d6 = interpoler(0.60)
+    q3 = interpoler(0.75)
 
     return {
-        'Q1': q1_val,
-        'Me (Q2)': me_val,
-        'D6': d6_val,
-        'Q3': q3_val,
-        'IQR (Q3 - Q1)': q3_val - q1_val,
-        'bornes': bornes,
-        'effectifs': effectifs,
-        'effectifs_cum': effectifs_cum,
-        'amplitudes': amplitudes,
-        'details': {
-            'Q1': {'idx': idx_q1, 'L_i': l_q1, 'N_avant': n_av_q1, 'n_i': n_i_q1, 'a_i': a_q1, 'p': 0.25},
-            'Me': {'idx': idx_me, 'L_i': l_me, 'N_avant': n_av_me, 'n_i': n_i_me, 'a_i': a_me, 'p': 0.50},
-            'D6': {'idx': idx_d6, 'L_i': l_d6, 'N_avant': n_av_d6, 'n_i': n_i_d6, 'a_i': a_d6, 'p': 0.60},
-            'Q3': {'idx': idx_q3, 'L_i': l_q3, 'N_avant': n_av_q3, 'n_i': n_i_q3, 'a_i': a_q3, 'p': 0.75}
-        }
+        "Q1": q1[0],
+        "Me (Q2)": me[0],
+        "D6": d6[0],
+        "Q3": q3[0],
+        "IQR (Q3 - Q1)": q3[0] - q1[0],
+        "bornes": bornes,
+        "effectifs": effectifs,
+        "effectifs_cum": effectifs_cum,
+        "amplitudes": amplitudes,
+        "details": {
+            "Q1": {"idx": q1[1], "L_i": q1[2], "N_avant": q1[3], "n_i": q1[4], "a_i": q1[5], "p": 0.25},
+            "Me": {"idx": me[1], "L_i": me[2], "N_avant": me[3], "n_i": me[4], "a_i": me[5], "p": 0.50},
+            "D6": {"idx": d6[1], "L_i": d6[2], "N_avant": d6[3], "n_i": d6[4], "a_i": d6[5], "p": 0.60},
+            "Q3": {"idx": q3[1], "L_i": q3[2], "N_avant": q3[3], "n_i": q3[4], "a_i": q3[5], "p": 0.75},
+        },
     }
 
 
-# Courbe cumulative & quantiles (Listing 12)
-def courbe_cumulative_quantiles(serie: pd.Series, methode: str = 'sturges'):
-    serie = serie.dropna()
+def courbe_cumulative_quantiles(serie: pd.Series, methode: str = "sturges"):
+    """Courbe cumulative et quantiles interpolés (Listing 12)."""
+    serie = pd.Series(serie).dropna()
     n = len(serie)
-    if methode == 'sturges':
-        bornes, k = creer_classes_sturges(serie)
-    elif methode == 'yule':
-        bornes, k = creer_classes_yule(serie)
-    else:
-        bornes, k = creer_classes_freedman_diaconis(serie)
+    bornes = _bornes(serie, methode)
 
     effectifs, _ = np.histogram(serie, bins=bornes)
-    f_cum = np.cumsum(effectifs) / n
+    f_cum = np.cumsum(effectifs) / n if n else np.zeros(len(effectifs))
     amplitudes = np.diff(bornes)
 
     def interpoler(p):
-        i = np.searchsorted(f_cum, p, side='left')
-        if i >= len(effectifs):
-            i = len(effectifs) - 1
-        F_avant = 0 if i == 0 else f_cum[i - 1]
-        L_i = bornes[i]
-        f_i = effectifs[i] / n
-        a_i = amplitudes[i]
-        return L_i + ((p - F_avant) / f_i) * a_i if f_i > 0 else L_i
+        i = int(np.searchsorted(f_cum, p, side="left"))
+        i = min(max(i, 0), len(effectifs) - 1)
+        avant = 0.0 if i == 0 else float(f_cum[i - 1])
+        l_i = float(bornes[i])
+        f_i = float(effectifs[i]) / n if n else 0.0
+        a_i = float(amplitudes[i])
+        return l_i + ((p - avant) / f_i) * a_i if f_i > 0 else l_i
 
     quantiles = {
-        'Q1 (25%)': interpoler(0.25),
-        'Q2 - Médiane (50%)': interpoler(0.50),
-        'D6 (60%)': interpoler(0.60),
-        'Q3 (75%)': interpoler(0.75)
+        "Q1 (25%)": interpoler(0.25),
+        "Q2 - Médiane (50%)": interpoler(0.50),
+        "D6 (60%)": interpoler(0.60),
+        "Q3 (75%)": interpoler(0.75),
     }
     return bornes, f_cum, quantiles
 
 
-# Paramètres de Tukey et Outliers (Listings 16 & 17)
 def parametres_tukey(serie: pd.Series) -> dict:
-    serie = serie.dropna()
-    q1 = np.percentile(serie, 25)
-    q2 = np.percentile(serie, 50)
-    q3 = np.percentile(serie, 75)
+    """Les cinq paramètres du diagramme de Tukey (Listings 16)."""
+    serie = pd.Series(serie).dropna()
+    q1 = float(np.percentile(serie, 25))
+    q2 = float(np.percentile(serie, 50))
+    q3 = float(np.percentile(serie, 75))
     iqr = q3 - q1
-    l_inf = q1 - 1.5 * iqr
-    l_sup = q3 + 1.5 * iqr
-    l_inf_ext = q1 - 3.0 * iqr
-    l_sup_ext = q3 + 3.0 * iqr
-
     return {
-        'Q1': q1,
-        'Q2 (Médiane)': q2,
-        'Q3': q3,
-        'IQR': iqr,
-        'L_inf (Modéré)': l_inf,
-        'L_sup (Modéré)': l_sup,
-        'L_inf_ext (Extrême)': l_inf_ext,
-        'L_sup_ext (Extrême)': l_sup_ext,
-        'Min': serie.min(),
-        'Max': serie.max(),
-        'Moyenne': serie.mean(),
-        'Écart-type': serie.std()
+        "Q1": q1,
+        "Q2 (Médiane)": q2,
+        "Q3": q3,
+        "IQR": iqr,
+        "L_inf (Modéré)": q1 - 1.5 * iqr,
+        "L_sup (Modéré)": q3 + 1.5 * iqr,
+        "L_inf_ext (Extrême)": q1 - 3.0 * iqr,
+        "L_sup_ext (Extrême)": q3 + 3.0 * iqr,
+        "Min": float(serie.min()),
+        "Max": float(serie.max()),
+        "Moyenne": float(serie.mean()),
+        "Écart-type": float(serie.std(ddof=1)) if len(serie) > 1 else 0.0,
     }
+
+
+def z_scores(serie: pd.Series) -> pd.Series:
+    """Z-scores (ddof = 0, comme scipy.stats.zscore)."""
+    serie = pd.Series(serie).dropna()
+    ecart = serie.std(ddof=0)
+    if not np.isfinite(ecart) or ecart == 0:
+        return pd.Series(0.0, index=serie.index)
+    return (serie - serie.mean()) / ecart
 
 
 def detecter_points_aberrants(df: pd.DataFrame, colonne: str) -> pd.DataFrame:
+    """Points aberrants selon le critère de Tukey (Listing 17)."""
     serie = df[colonne].dropna()
-    p = parametres_tukey(serie)
-    outliers = serie[(serie < p['L_inf (Modéré)']) | (serie > p['L_sup (Modéré)'])]
+    if len(serie) < 4:
+        return pd.DataFrame(columns=["Index", "Valeur", "Type", "Écart à la médiane", "Z-Score"])
 
+    params = parametres_tukey(serie)
+    outliers = serie[
+        (serie < params["L_inf (Modéré)"]) | (serie > params["L_sup (Modéré)"])
+    ]
     if len(outliers) == 0:
-        return pd.DataFrame(columns=['Index', 'Valeur', 'Type', 'Écart à la médiane', 'Z-Score'])
+        return pd.DataFrame(columns=["Index", "Valeur", "Type", "Écart à la médiane", "Z-Score"])
 
+    z_map = z_scores(serie).to_dict()
     types = []
-    z_scores = stats.zscore(serie)
-    z_map = dict(zip(serie.index, z_scores))
-
-    for idx, val in outliers.items():
-        if val < p['L_inf_ext (Extrême)'] or val > p['L_sup_ext (Extrême)']:
-            types.append('Extrême (> 3×IQR)')
+    for value in outliers.values:
+        if value < params["L_inf_ext (Extrême)"] or value > params["L_sup_ext (Extrême)"]:
+            types.append("Extrême (> 3×IQR)")
         else:
-            types.append('Modéré (1.5×IQR - 3×IQR)')
+            types.append("Modéré (1.5×IQR – 3×IQR)")
 
     return pd.DataFrame({
-        'Index': outliers.index,
-        'Valeur': outliers.values,
-        'Type': types,
-        'Écart à la médiane': (outliers.values - p['Q2 (Médiane)']).round(4),
-        'Z-Score': [round(z_map[i], 3) for i in outliers.index]
+        "Index": outliers.index,
+        "Valeur": outliers.values,
+        "Type": types,
+        "Écart à la médiane": np.round(outliers.values - params["Q2 (Médiane)"], 4),
+        "Z-Score": [round(z_map[i], 3) for i in outliers.index],
     })
 
 
-# -----------------------------------------------------------------------------
-# 3. Barre Latérale (Side Menu) & Chargement des Données
-# -----------------------------------------------------------------------------
-with st.sidebar:
-    st.markdown("""
-    <div style="text-align: center; padding: 15px 0 25px 0;">
-        <span style="font-size: 2.5rem;">📊</span>
-        <h2 style="margin: 5px 0 0 0; font-weight: 700; color: #818cf8;">StatLab Pro</h2>
-        <p style="margin: 0; font-size: 0.8rem; color: #94a3b8;">Fiche TP - Statistique Descriptive</p>
-    </div>
-    """, unsafe_allow_html=True)
+def parametres_table(serie: pd.Series) -> pd.DataFrame:
+    """Tableau récapitulatif position + dispersion."""
+    rows = []
+    for label, value in parametres_position(serie).items():
+        rows.append({"Famille": "Position", "Paramètre": label, "Valeur": value})
+    for label, value in parametres_dispersion(serie).items():
+        rows.append({"Famille": "Dispersion / forme", "Paramètre": label, "Valeur": value})
+    return pd.DataFrame(rows)
 
-    st.subheader("📁 Source des Données")
-    source_choisie = st.radio(
-        "Sélectionnez le mode de chargement :",
-        ["Jeu de données Démo (TP Stat 1)", "Importer un fichier personnalisé"],
-        index=0
+
+# -----------------------------------------------------------------------------
+# Barre latérale
+# -----------------------------------------------------------------------------
+NAV = {
+    1: ("Vue globale", "🔍"),
+    2: ("Tableaux & graphiques", "📊"),
+    3: ("Position & dispersion", "📐"),
+    4: ("Interpolation", "⚖️"),
+    5: ("Courbe cumulative", "📈"),
+    6: ("Tukey & outliers", "📦"),
+    7: ("Discrétisation", "🔄"),
+    8: ("Opération inverse", "↩️"),
+    9: ("Synthèse", "🧾"),
+    10: ("Exercices", "🧪"),
+}
+
+SRC_DEMO = "Jeu de démonstration (TP)"
+SRC_FILE = "Importer un fichier"
+
+with st.sidebar:
+    md(
+        '<div class="brand">'
+        '<div class="brand-logo">📊</div>'
+        '<div><div class="brand-name">AutoSTAT</div>'
+        '<div class="brand-sub">Statistique descriptive · 2025–2026</div></div>'
+        "</div>"
     )
 
-    df_actuel = None
+    md('<div class="side-title">Apparence</div>')
+    st.radio(
+        "Apparence",
+        THEME_OPTIONS,
+        key="theme_radio",
+        label_visibility="collapsed",
+    )
+
+    md('<div class="divider"></div>')
+    md('<div class="side-title">Source des données</div>')
+    source_choisie = st.radio(
+        "Source",
+        [SRC_DEMO, SRC_FILE],
+        key="source_radio",
+        label_visibility="collapsed",
+    )
+
+    df_actuel: pd.DataFrame | None = None
     nom_source = ""
 
-    if source_choisie == "Jeu de données Démo (TP Stat 1)":
+    if source_choisie == SRC_DEMO:
         df_actuel = get_demo_dataset()
-        nom_source = "Dataset Démo TP (N=50 étudiants)"
-        st.success("✅ Dataset officiel du TP chargé (50 lignes, 6 colonnes)")
+        nom_source = "Dataset démo · 50 étudiants"
+        st.success("50 lignes · 6 colonnes")
     else:
         fichier = st.file_uploader(
-            "Uploadez un fichier (CSV ou Excel)",
-            type=['csv', 'xlsx', 'xls']
+            "Fichier CSV ou Excel",
+            type=["csv", "xlsx", "xls"],
+            key="uploader",
         )
         if fichier is not None:
             try:
-                if fichier.name.endswith('.csv'):
-                    # Test délimiteurs courants
-                    df_actuel = pd.read_csv(fichier)
-                else:
-                    df_actuel = pd.read_excel(fichier)
-                nom_source = f"Fichier importé : {fichier.name}"
-                st.success(f"✅ {fichier.name} chargé ({df_actuel.shape[0]} lignes, {df_actuel.shape[1]} colonnes)")
-            except Exception as e:
-                st.error(f"Erreur de lecture du fichier : {e}")
+                df_actuel = read_uploaded(fichier)
+                if df_actuel is None or df_actuel.empty:
+                    raise ValueError("le fichier ne contient aucune ligne")
+                nom_source = fichier.name
+                st.success(f"{df_actuel.shape[0]} lignes · {df_actuel.shape[1]} colonnes")
+            except Exception as exc:  # noqa: BLE001
+                st.error(f"Lecture impossible : {exc}")
                 df_actuel = get_demo_dataset()
-                nom_source = "Dataset Démo (Secours suite à erreur)"
+                nom_source = "Dataset démo (secours)"
         else:
-            st.info("ℹ️ Veuillez importer un fichier CSV/Excel. Utilisation du dataset Démo par défaut.")
+            st.info("Aucun fichier importé — dataset démo utilisé.")
             df_actuel = get_demo_dataset()
-            nom_source = "Dataset Démo TP (En attente d'upload)"
+            nom_source = "Dataset démo · en attente d'import"
 
-    st.markdown("---")
-    st.subheader("🎯 Variable d'Étude")
+    md('<div class="divider"></div>')
+    md('<div class="side-title">Variable d’étude</div>')
 
-    colonnes_dispos = [col for col in df_actuel.columns if col.upper() != 'ID']
+    colonnes_dispos = [c for c in df_actuel.columns if str(c).upper() != "ID"]
     if not colonnes_dispos:
         colonnes_dispos = list(df_actuel.columns)
 
+    index_defaut = (
+        colonnes_dispos.index("Note_Stats") if "Note_Stats" in colonnes_dispos else 0
+    )
     colonne_selectionnee = st.selectbox(
-        "Sélectionnez la colonne à analyser :",
+        "Colonne analysée",
         colonnes_dispos,
-        index=3 if 'Note_Stats' in colonnes_dispos else 0
+        index=index_defaut,
     )
 
-    # Détection automatique du type de la colonne sélectionnée
     type_auto = detecter_type_variable(df_actuel[colonne_selectionnee])
+    type_effectif = type_auto
 
-    # Possibilité de forcer/ajuster le type si besoin
-    st.markdown(f"**Type détecté automatiquement :**")
-    badge_map = {
-        'qualitative_nominale': ('Qualitative Nominale', 'badge-nominale', '🏷️'),
-        'qualitative_ordinale': ('Qualitative Ordinale', 'badge-ordinale', '📈'),
-        'quantitative_discrete': ('Quantitative Discrète', 'badge-discrete', '🔢'),
-        'quantitative_continue': ('Quantitative Continue', 'badge-continue', '📏')
-    }
-    label_t, class_t, icon_t = badge_map.get(type_auto, ('Inconnu', 'badge-nominale', '❓'))
-    st.markdown(f'<div class="type-badge {class_t}">{icon_t} {label_t}</div>', unsafe_allow_html=True)
+    md(f'<div style="margin:2px 0 10px;">{badge_html(type_auto)}</div>')
 
-    forcer_type = st.checkbox("Modifier manuellement le type de variable ?")
-    if forcer_type:
-        type_effectif = st.selectbox(
-            "Type forcé :",
-            ['qualitative_nominale', 'qualitative_ordinale', 'quantitative_discrete', 'quantitative_continue'],
-            index=['qualitative_nominale', 'qualitative_ordinale', 'quantitative_discrete', 'quantitative_continue'].index(type_auto)
-        )
-    else:
-        type_effectif = type_auto
+    with st.expander("⚙️ Forcer le type détecté"):
+        forcer_type = st.checkbox("Modifier manuellement", key="forcer_type")
+        if forcer_type:
+            type_effectif = st.selectbox(
+                "Type retenu",
+                TYPE_CHOICES,
+                index=TYPE_CHOICES.index(type_auto) if type_auto in TYPE_CHOICES else 0,
+                key="type_force",
+            )
 
-    st.markdown("---")
-    st.subheader("🧭 Navigation des Sections")
-    section_menu = st.radio(
-        "Aller à la section :",
-        [
-            "1. Vue Globale & Détection des Types",
-            "2. Tableaux & Graphiques Statistiques",
-            "3. Paramètres de Position & Dispersion",
-            "4. Interpolation Linéaire sur Histogramme",
-            "5. Courbe Cumulative & Quantiles (D6)",
-            "6. Diagramme de Tukey & Outliers",
-            "7. Discret vers Continu (Discrétisation)",
-            "8. Opération Inverse (Graphique → Tableau)",
-            "9. Dashboard de Synthèse Global"
-        ]
+    md('<div class="divider"></div>')
+    md('<div class="side-title">Navigation</div>')
+    section = st.radio(
+        "Navigation",
+        list(NAV.keys()),
+        format_func=lambda n: f"{n:02d} · {NAV[n][1]}",
+        key="nav_section",
+        label_visibility="collapsed",
     )
 
-    st.markdown("---")
-    st.markdown("""
-    <div style="font-size: 0.75rem; color: #64748b; line-height: 1.4;">
-        TP Statistique Descriptive — Année 2025–2026<br>
-        Module : Statistique Descriptive (6h)<br>
-        <i>Pandas • NumPy • SciPy • Matplotlib • Plotly</i>
-    </div>
-    """, unsafe_allow_html=True)
+    md('<div class="divider"></div>')
+    md(
+        '<div class="small" style="line-height:1.6;">'
+        "TP Statistique descriptive — 6 h<br>"
+        "Pandas · NumPy · Plotly · Streamlit<br>"
+        "<span style='opacity:.8;'>Thème clair / sombre intégré</span>"
+        "</div>"
+    )
 
+label_t, class_t, icon_t = TYPE_META.get(type_effectif, TYPE_META["inconnu"])
 
 # -----------------------------------------------------------------------------
-# Entête Principal Hero
+# En-tête
 # -----------------------------------------------------------------------------
-st.markdown(f"""
-<div class="hero-header">
-    <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 15px;">
+md(
+    f"""
+<div class="hero">
+    <div class="hero-top">
         <div>
-            <h1 class="hero-title">Plateforme Statistique & Visualisation Interactive</h1>
-            <p class="hero-subtitle">
-                Application complète pour le TP Statistique Descriptive • {nom_source}
+            <div class="hero-eyebrow">Fiche TP · Statistique descriptive</div>
+            <h1 class="hero-title">Dashboard statistique interactif</h1>
+            <p class="hero-sub">
+                Détection automatique des types, tableaux et graphiques, paramètres,
+                interpolation linéaire, courbe cumulative, diagramme de Tukey et discrétisation.
             </p>
         </div>
-        <div>
-            <span class="type-badge {class_t}" style="font-size: 0.95rem; padding: 8px 18px;">
-                {icon_t} {colonne_selectionnee} : {label_t}
-            </span>
-        </div>
+        <div>{badge_html(type_effectif)}</div>
+    </div>
+    <div class="hero-chips">
+        <span class="chip">📁 {esc(nom_source)}</span>
+        <span class="chip">👥 n = {len(df_actuel)}</span>
+        <span class="chip">🧮 {len(df_actuel.columns)} variables</span>
+        <span class="chip">🎯 {esc(colonne_selectionnee)}</span>
     </div>
 </div>
-""", unsafe_allow_html=True)
-
+"""
+)
 
 # -----------------------------------------------------------------------------
-# SECTION 1 : VUE GLOBALE & DÉTERMINATION AUTOMATIQUE DES TYPES
+# SECTION 1 — Vue globale & détection des types
 # -----------------------------------------------------------------------------
-if section_menu.startswith("1."):
-    st.markdown("## 🔍 1. Détection Automatique des Types & Aperçu des Données")
-    st.markdown(r"""
-    Le script applique l'algorithme officiel de la **Fiche TP (Listing 3)** pour classifier automatiquement chaque colonne :
-    - **Qualitative Nominale :** Catégories d'objets sans hiérarchie.
-    - **Qualitative Ordinale :** Catégories avec hiérarchie ou mots-clés d'ordre (*niveau, licence, master, doctorat, etc.*).
-    - **Quantitative Discrète :** Nombres entiers avec nombre fini de valeurs uniques ($\le 20$).
-    - **Quantitative Continue :** Nombres réels / mesures continues.
-    """)
+if section == 1:
+    md(section_head("🔍", "Vue globale & détection des types",
+                    "Aperçu du jeu de données et classification statistique de chaque colonne."))
 
-    # Matrice récapitulative de classification
-    summary_data = []
-    for col in df_actuel.columns:
-        serie = df_actuel[col]
-        t = detecter_type_variable(serie)
-        lbl, cls, icn = badge_map.get(t, ('Inconnu', 'badge-nominale', '❓'))
-        summary_data.append({
-            'Colonne': col,
-            'Type Détecté': f"{icn} {lbl}",
-            'Type Données (dtype)': str(serie.dtype),
-            'Valeurs Uniques': serie.nunique(),
-            'Valeurs Manquantes': serie.isna().sum(),
-            'Exemple de valeurs': str(serie.dropna().unique()[:4].tolist())
+    left, right = st.columns(2, gap="large")
+    with left:
+        md(callout(
+            "Variables qualitatives",
+            "<b>Nominale</b> — catégories sans hiérarchie (ex. <i>Genre</i>).<br>"
+            "<b>Ordinale</b> — catégories ordonnées (ex. <i>Niveau d’étude</i>).",
+            "info", "🏷️",
+        ))
+    with right:
+        md(callout(
+            "Variables quantitatives",
+            "<b>Discrète</b> — entiers, peu de valeurs distinctes (ex. <i>Âge</i>).<br>"
+            "<b>Continue</b> — mesures réelles (ex. <i>Note_Stats</i>).",
+            "info", "📏",
+        ))
+
+    summary_rows = []
+    for colonne in df_actuel.columns:
+        serie_col = df_actuel[colonne]
+        detected = detecter_type_variable(serie_col)
+        label, _css, icon = TYPE_META.get(detected, TYPE_META["inconnu"])
+        exemples = serie_col.dropna().unique()[:4].tolist()
+        summary_rows.append({
+            "Colonne": colonne,
+            "Type détecté": f"{icon} {label}",
+            "dtype": str(serie_col.dtype),
+            "Valeurs uniques": serie_col.nunique(),
+            "Manquants": int(serie_col.isna().sum()),
+            "Exemples": ", ".join(str(v) for v in exemples),
         })
+    df_summary = pd.DataFrame(summary_rows)
 
-    df_summary = pd.DataFrame(summary_data)
+    nb_quant = sum(1 for row in summary_rows if "Quantitative" in row["Type détecté"])
+    nb_qual = sum(1 for row in summary_rows if "Qualitative" in row["Type détecté"])
 
-    col_kpi1, col_kpi2, col_kpi3, col_kpi4 = st.columns(4)
-    with col_kpi1:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-label">Taille Échantillon (n)</div>
-            <div class="metric-value">{len(df_actuel)}</div>
-            <div class="metric-sub">Lignes observées</div>
-        </div>
-        """, unsafe_allow_html=True)
-    with col_kpi2:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-label">Nombre de Variables</div>
-            <div class="metric-value">{len(df_actuel.columns)}</div>
-            <div class="metric-sub">Colonnes dans le dataset</div>
-        </div>
-        """, unsafe_allow_html=True)
-    with col_kpi3:
-        nb_quant = sum(1 for d in summary_data if 'Quantitative' in d['Type Détecté'])
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-label">Variables Quantitatives</div>
-            <div class="metric-value">{nb_quant}</div>
-            <div class="metric-sub">Discrètes ou continues</div>
-        </div>
-        """, unsafe_allow_html=True)
-    with col_kpi4:
-        nb_qual = sum(1 for d in summary_data if 'Qualitative' in d['Type Détecté'])
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-label">Variables Qualitatives</div>
-            <div class="metric-value">{nb_qual}</div>
-            <div class="metric-sub">Nominales ou ordinales</div>
-        </div>
-        """, unsafe_allow_html=True)
+    kpi_row([
+        ("Taille de l’échantillon", f"{len(df_actuel)}", "lignes observées"),
+        ("Variables", f"{len(df_actuel.columns)}", "colonnes du dataset"),
+        ("Quantitatives", f"{nb_quant}", "discrètes ou continues"),
+        ("Qualitatives", f"{nb_qual}", "nominales ou ordinales"),
+    ])
 
-    st.markdown("### 📋 Classification des Variables du Dataset")
-    st.dataframe(df_summary, use_container_width=True)
+    st.write("")
+    md('<div class="mini-title">Classification des variables</div>')
+    show_table(df_summary, max_height=420)
 
-    with st.expander("👀 Explorer les données brutes du dataset (premières lignes)", expanded=True):
-        st.dataframe(df_actuel.head(15), use_container_width=True)
-
+    with st.expander("👀 Explorer les données brutes (15 premières lignes)", expanded=True):
+        show_table(df_actuel.head(15), max_height=380)
 
 # -----------------------------------------------------------------------------
-# SECTION 2 : TABLEAUX & REPRÉSENTATIONS GRAPHIQUES
+# SECTION 2 — Tableaux & graphiques
 # -----------------------------------------------------------------------------
-elif section_menu.startswith("2."):
-    st.markdown(f"## 📊 2. Tableaux Statistiques & Graphiques pour : `{colonne_selectionnee}`")
+elif section == 2:
+    md(section_head("📊", f"Tableaux & graphiques — {colonne_selectionnee}",
+                    "Représentations adaptées au type statistique de la variable."))
 
     serie_select = df_actuel[colonne_selectionnee]
 
-    # --- VARIABLE QUALITATIVE ---
-    if 'qualitative' in type_effectif:
-        st.info(f"Variable détectée comme **{label_t}**. Tableaux de fréquences et représentations adaptées (Tuyaux d'orgues & Diagramme Circulaire).")
-
+    # ---------- Variable qualitative ----------
+    if "qualitative" in type_effectif:
+        md(callout(
+            "Variable qualitative",
+            f"Tableau des effectifs et des fréquences, diagramme en tuyaux d’orgues "
+            f"et diagramme circulaire pour <b>{esc(colonne_selectionnee)}</b>.",
+            "info", "🏷️",
+        ))
         tab_stat = tableau_qualitatif(df_actuel, colonne_selectionnee)
 
-        col_t1, col_t2 = st.columns([1.2, 1.8])
-        with col_t1:
-            st.markdown("### 📑 Tableau Statistique")
-            st.dataframe(tab_stat, use_container_width=True)
+        left, right = st.columns([1.15, 1.35], gap="large")
+        with left:
+            md('<div class="mini-title">Tableau statistique</div>')
+            show_table(tab_stat, max_height=360)
+            download_csv(tab_stat, f"tableau_{colonne_selectionnee}.csv",
+                         "📥 Exporter le tableau (CSV)", key="dl_qual")
 
-            # Option téléchargement CSV
-            csv = tab_stat.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                "📥 Télécharger le tableau (CSV)",
-                csv,
-                f"tableau_{colonne_selectionnee}.csv",
-                "text/csv"
-            )
-
-        with col_t2:
-            st.markdown("### 🥧 Diagramme Circulaire (Section 6.2)")
+        with right:
             fig_pie = px.pie(
                 tab_stat,
-                names='Modalité',
-                values='Effectif (n_i)',
-                hole=0.35,
-                color_discrete_sequence=px.colors.qualitative.Pastel,
-                title=f"Répartition de {colonne_selectionnee}"
+                names="Modalité",
+                values="Effectif (n_i)",
+                hole=0.42,
+                color_discrete_sequence=THEME["chart"]["colorway"],
             )
-            fig_pie.update_traces(textposition='inside', textinfo='percent+label', marker=dict(line=dict(color='#1e293b', width=2)))
-            fig_pie.update_layout(template="plotly_dark", height=380, margin=dict(l=20, r=20, t=40, b=20))
-            st.plotly_chart(fig_pie, use_container_width=True)
+            fig_pie.update_traces(
+                textposition="inside",
+                textinfo="percent+label",
+                marker=dict(line=dict(color=THEME["chart"]["pie_line"], width=2)),
+            )
+            plot(fig_pie, height=360, title=f"Répartition de {colonne_selectionnee}")
 
-        st.markdown("---")
-        st.markdown("### 🏛️ Diagramme en Tuyaux d'Orgues (Section 6.1)")
+        st.write("")
+        md('<div class="mini-title">Diagramme en tuyaux d’orgues</div>')
         fig_bar = px.bar(
             tab_stat,
-            x='Modalité',
-            y='Effectif (n_i)',
-            text='Effectif (n_i)',
-            color='Modalité',
-            color_discrete_sequence=px.colors.qualitative.Vivid,
-            title=f"Diagramme en tuyaux d'orgues - {colonne_selectionnee}"
+            x="Modalité",
+            y="Effectif (n_i)",
+            text="Effectif (n_i)",
+            color="Modalité",
+            color_discrete_sequence=THEME["chart"]["colorway"],
         )
-        fig_bar.update_layout(template="plotly_dark", yaxis_title="Effectif (n_i)", xaxis_title=colonne_selectionnee, height=400)
-        fig_bar.update_traces(texttemplate='%{text}', textposition='outside', marker_line_color='rgba(255,255,255,0.3)', marker_line_width=1.5)
-        st.plotly_chart(fig_bar, use_container_width=True)
+        fig_bar.update_traces(
+            texttemplate="%{text}",
+            textposition="outside",
+            marker_line_color=THEME["css"]["border"],
+            marker_line_width=1.5,
+        )
+        fig_bar.update_layout(showlegend=False)
+        plot(fig_bar, height=380, title=f"Effectifs par modalité — {colonne_selectionnee}")
 
-    # --- VARIABLE QUANTITATIVE DISCRÈTE ---
-    elif type_effectif == 'quantitative_discrete':
-        st.info(f"Variable détectée comme **Quantitative Discrète**. Tableaux des effectifs et graphes : Diagramme en Bâtons & Courbe en Escalier.")
-
+    # ---------- Variable quantitative discrète ----------
+    elif type_effectif == "quantitative_discrete" and np.issubdtype(serie_select.dtype, np.number):
+        md(callout(
+            "Variable quantitative discrète",
+            "Tableau des effectifs, diagramme en bâtons et courbe cumulative en escalier.",
+            "info", "🔢",
+        ))
         tab_disc = tableau_quantitatif_discret(df_actuel, colonne_selectionnee)
 
-        col_d1, col_d2 = st.columns([1.2, 1.8])
-        with col_d1:
-            st.markdown("### 📑 Tableau Statistique Discret")
-            st.dataframe(tab_disc, use_container_width=True)
+        left, right = st.columns([1.15, 1.35], gap="large")
+        with left:
+            md('<div class="mini-title">Tableau statistique</div>')
+            show_table(tab_disc, max_height=360)
+            download_csv(tab_disc, f"tableau_{colonne_selectionnee}.csv",
+                         "📥 Exporter le tableau (CSV)", key="dl_disc")
 
-        with col_d2:
-            st.markdown("### 📌 Diagramme en Bâtons (Section 6.3)")
+        with right:
             fig_baton = go.Figure()
-            # Bâtons fins
             for _, row in tab_disc.iterrows():
                 fig_baton.add_trace(go.Scatter(
-                    x=[row['Valeur (x_i)'], row['Valeur (x_i)']],
-                    y=[0, row['Effectif (n_i)']],
-                    mode='lines',
-                    line=dict(color='#10b981', width=5),
-                    showlegend=False
+                    x=[row["Valeur (x_i)"], row["Valeur (x_i)"]],
+                    y=[0, row["Effectif (n_i)"]],
+                    mode="lines",
+                    line=dict(color=THEME["chart"]["colorway"][2], width=5),
+                    showlegend=False,
+                    hoverinfo="skip",
                 ))
             fig_baton.add_trace(go.Scatter(
-                x=tab_disc['Valeur (x_i)'],
-                y=tab_disc['Effectif (n_i)'],
-                mode='markers',
-                marker=dict(size=12, color='#34d399', line=dict(color='#ffffff', width=2)),
-                name='Effectif'
+                x=tab_disc["Valeur (x_i)"],
+                y=tab_disc["Effectif (n_i)"],
+                mode="markers",
+                marker=dict(size=12, color=THEME["chart"]["colorway"][2],
+                            line=dict(color=THEME["chart"]["pie_line"], width=2)),
+                name="Effectif",
             ))
-            fig_baton.update_layout(
-                template="plotly_dark",
-                title=f"Diagramme en bâtons - {colonne_selectionnee}",
-                xaxis_title=colonne_selectionnee,
-                yaxis_title="Effectif",
-                height=380
-            )
-            st.plotly_chart(fig_baton, use_container_width=True)
+            plot(fig_baton, height=360,
+                 title=f"Diagramme en bâtons — {colonne_selectionnee}", showlegend=False)
 
-        st.markdown("---")
-        st.markdown("### 🪜 Courbe Cumulative en Escalier (Section 6.4)")
+        st.write("")
+        md('<div class="mini-title">Courbe cumulative en escalier</div>')
         fig_step = go.Figure()
-        # Step plot
         fig_step.add_trace(go.Scatter(
-            x=tab_disc['Valeur (x_i)'],
-            y=tab_disc['Fréquence cumulée'],
-            mode='lines+markers',
-            line_shape='hv',
-            line=dict(color='#f97316', width=3),
-            marker=dict(size=8, color='#ef4444'),
-            name='F(x)'
+            x=tab_disc["Valeur (x_i)"],
+            y=tab_disc["Fréquence cumulée"],
+            mode="lines+markers",
+            line_shape="hv",
+            line=dict(color=THEME["chart"]["colorway"][3], width=3),
+            marker=dict(size=8, color=THEME["chart"]["colorway"][3]),
+            name="F(x)",
         ))
-        fig_step.update_layout(
-            template="plotly_dark",
-            title=f"Fonction de répartition en escalier - {colonne_selectionnee}",
-            xaxis_title=colonne_selectionnee,
-            yaxis_title="Fréquence cumulée F(x)",
-            yaxis=dict(range=[0, 1.05]),
-            height=420
-        )
-        st.plotly_chart(fig_step, use_container_width=True)
+        fig_step.update_layout(yaxis=dict(range=[0, 1.05], title="Fréquence cumulée F(x)"))
+        plot(fig_step, height=400, title=f"Fonction de répartition — {colonne_selectionnee}")
 
-    # --- VARIABLE QUANTITATIVE CONTINUE ---
+    # ---------- Variable quantitative continue ----------
     else:
-        st.info("Variable détectée comme **Quantitative Continue**. Comparaison des 3 règles de discrétisation (Sturges, Yule, Freedman-Diaconis), Histogramme et Ogive.")
+        if not callout_num(serie_select, "Cette variable doit être numérique pour être discrétisée."):
+            st.stop()
 
+        md(callout(
+            "Variable quantitative continue",
+            "Comparaison des trois règles de discrétisation, histogramme et ogive.",
+            "info", "📏",
+        ))
         regle = st.radio(
-            "Choisissez la règle de discrétisation :",
-            ["sturges (Sturges : k = 1 + 3.322 log10(n))", "yule (Yule : k = 2.5 * n^(1/4))", "fd (Freedman-Diaconis : h = 2*IQR/n^(1/3))"],
+            "Règle de discrétisation",
+            [
+                "sturges · k = 1 + 3.322 log10(n)",
+                "yule · k = 2.5 n^(1/4)",
+                "fd · h = 2·IQR / n^(1/3)",
+            ],
             index=0,
-            horizontal=True
+            horizontal=True,
         )
         code_regle = regle.split()[0]
+        nom_regle = {"sturges": "Sturges", "yule": "Yule", "fd": "Freedman–Diaconis"}[code_regle]
 
-        tab_cont = tableau_quantitatif_continu(df_actuel, colonne_selectionnee, methode=code_regle)
+        tab_cont = tableau_quantitatif_continu(df_actuel, colonne_selectionnee, code_regle)
+        bornes = _bornes(serie_select, code_regle)
 
-        st.markdown(f"### 📑 Tableau des Classes — Règle de {code_regle.upper()}")
-        st.dataframe(tab_cont, use_container_width=True)
+        md('<div class="mini-title">Tableau des classes</div>')
+        show_table(tab_cont, max_height=380, caption=f"Règle de {nom_regle} — {len(bornes) - 1} classes")
 
-        col_c1, col_c2 = st.columns(2)
-
-        with col_c1:
-            st.markdown("### 📊 Histogramme (Section 6.5)")
-            if code_regle == 'sturges':
-                bornes, _ = creer_classes_sturges(serie_select)
-            elif code_regle == 'yule':
-                bornes, _ = creer_classes_yule(serie_select)
-            else:
-                bornes, _ = creer_classes_freedman_diaconis(serie_select)
-
+        left, right = st.columns(2, gap="large")
+        with left:
+            md('<div class="mini-title">Histogramme</div>')
             fig_hist = px.histogram(
                 serie_select,
+                x=serie_select.name if serie_select.name else None,
                 nbins=len(bornes) - 1,
-                color_discrete_sequence=['#8b5cf6'],
-                title=f"Histogramme ({code_regle.upper()}) - {colonne_selectionnee}"
+                color_discrete_sequence=[THEME["chart"]["colorway"][5]],
             )
-            fig_hist.update_traces(xbins=dict(start=bornes[0], end=bornes[-1], size=(bornes[-1]-bornes[0])/(len(bornes)-1)), marker_line_color='black', marker_line_width=1.5)
-            fig_hist.update_layout(template="plotly_dark", yaxis_title="Effectif", xaxis_title=colonne_selectionnee, height=380)
-            st.plotly_chart(fig_hist, use_container_width=True)
+            fig_hist.update_traces(
+                xbins=dict(start=bornes[0], end=bornes[-1],
+                           size=(bornes[-1] - bornes[0]) / max(len(bornes) - 1, 1)),
+                marker_line_color=THEME["chart"]["pie_line"],
+                marker_line_width=1.5,
+            )
+            fig_hist.update_layout(bargap=0.04)
+            plot(fig_hist, height=360, title=f"Histogramme — {nom_regle}")
 
-        with col_c2:
-            st.markdown("### 📈 Courbe Cumulative / Ogive (Section 6.6)")
-            bornes_og, f_cum_og, _ = courbe_cumulative_quantiles(serie_select, methode=code_regle)
-
+        with right:
+            md('<div class="mini-title">Courbe cumulative (ogive)</div>')
+            bornes_og, f_cum_og, _ = courbe_cumulative_quantiles(serie_select, code_regle)
             fig_ogive = go.Figure()
             fig_ogive.add_trace(go.Scatter(
                 x=bornes_og[1:],
                 y=f_cum_og,
-                mode='lines+markers',
-                line=dict(color='#06b6d4', width=3),
-                fill='tozeroy',
-                fillcolor='rgba(6, 182, 212, 0.15)',
-                marker=dict(size=8, color='#38bdf8'),
-                name='Fréquence cumulée'
+                mode="lines+markers",
+                line=dict(color=THEME["chart"]["colorway"][1], width=3),
+                fill="tozeroy",
+                fillcolor="rgba(6, 182, 212, 0.12)",
+                marker=dict(size=8, color=THEME["chart"]["colorway"][1]),
+                name="Fréquence cumulée",
             ))
-            fig_ogive.update_layout(
-                template="plotly_dark",
-                title=f"Courbe cumulative (Ogive) - {colonne_selectionnee}",
-                xaxis_title=colonne_selectionnee,
-                yaxis_title="Fréquence cumulée F(x)",
-                yaxis=dict(range=[0, 1.05]),
-                height=380
-            )
-            st.plotly_chart(fig_ogive, use_container_width=True)
-
+            fig_ogive.update_layout(yaxis=dict(range=[0, 1.05], title="Fréquence cumulée F(x)"))
+            plot(fig_ogive, height=360, title=f"Ogive — {nom_regle}", showlegend=False)
 
 # -----------------------------------------------------------------------------
-# SECTION 3 : PARAMÈTRES DE POSITION & DISPERSION
+# SECTION 3 — Paramètres de position & dispersion
 # -----------------------------------------------------------------------------
-elif section_menu.startswith("3."):
-    st.markdown(f"## 📐 3. Paramètres de Position & Dispersion : `{colonne_selectionnee}`")
+elif section == 3:
+    md(section_head("📐", f"Position & dispersion — {colonne_selectionnee}",
+                    "Paramètres numériques, table récapitulative et visualisations annotées."))
 
     serie = df_actuel[colonne_selectionnee].dropna()
-    if not np.issubdtype(serie.dtype, np.number):
-        st.warning("⚠️ Cette variable est qualitative. Les paramètres numériques sont calculables uniquement sur les variables quantitatives.")
-    else:
-        p_pos = parametres_position(serie)
-        p_disp = parametres_dispersion(serie)
-
-        st.markdown("### 📍 Paramètres de Position (Section 7.1 & 7.2)")
-        col_p1, col_p2, col_p3, col_p4 = st.columns(4)
-        with col_p1:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">Moyenne (x̄)</div>
-                <div class="metric-value">{p_pos['Moyenne']:.2f}</div>
-                <div class="metric-sub">Centre de gravité</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with col_p2:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">Médiane (Me / Q2)</div>
-                <div class="metric-value">{p_pos['Médiane (Q2)']:.2f}</div>
-                <div class="metric-sub">Valeur 50%</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with col_p3:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">Mode (Mo)</div>
-                <div class="metric-value">{p_pos['Mode']:.2f}</div>
-                <div class="metric-sub">Valeur la plus fréquente</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with col_p4:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">Quartiles Q1 / Q3</div>
-                <div class="metric-value">{p_pos['Q1 (25%)']:.1f} / {p_pos['Q3 (75%)']:.1f}</div>
-                <div class="metric-sub">25% et 75%</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-        st.markdown("### 📏 Paramètres de Dispersion & Forme (Section 7.1 & 7.2)")
-        col_d1, col_d2, col_d3, col_d4 = st.columns(4)
-        with col_d1:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">Étendue (E)</div>
-                <div class="metric-value">{p_disp['Étendue']:.2f}</div>
-                <div class="metric-sub">Max - Min</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with col_d2:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">IQR (Q3 - Q1)</div>
-                <div class="metric-value">{p_disp['IQR (Q3 - Q1)']:.2f}</div>
-                <div class="metric-sub">Écart interquartile</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with col_d3:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">Écart-Type (s)</div>
-                <div class="metric-value">{p_disp['Écart-type (s)']:.2f}</div>
-                <div class="metric-sub">Variance s² = {p_disp['Variance (s²)']:.2f}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with col_d4:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">Coeff. de Variation</div>
-                <div class="metric-value">{p_disp['CV (%)']}%</div>
-                <div class="metric-sub">s / x̄ × 100</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-        st.markdown("---")
-        st.markdown("### 📈 Visualisation Graphique des Paramètres (Section 7.3)")
-
-        tab_g1, tab_g2 = st.tabs(["Lignes de Position (Moyenne, Médiane, Q1, Q3)", "Zones de Dispersion (Étendue, IQR, x̄ ± s)"])
-
-        with tab_g1:
-            fig_pos = go.Figure()
-            fig_pos.add_trace(go.Histogram(
-                x=serie,
-                name='Distribution',
-                marker=dict(color='rgba(99, 102, 241, 0.65)', line=dict(color='black', width=1.5)),
-                opacity=0.75
-            ))
-            # Lignes verticales de position
-            fig_pos.add_vline(x=p_pos['Moyenne'], line_width=2.5, line_color="#ef4444", annotation_text=f"Moyenne = {p_pos['Moyenne']:.2f}", annotation_position="top left")
-            fig_pos.add_vline(x=p_pos['Médiane (Q2)'], line_width=2.5, line_dash="dash", line_color="#10b981", annotation_text=f"Médiane = {p_pos['Médiane (Q2)']:.2f}", annotation_position="top right")
-            fig_pos.add_vline(x=p_pos['Q1 (25%)'], line_width=2, line_dash="dot", line_color="#f59e0b", annotation_text=f"Q1 = {p_pos['Q1 (25%)']:.2f}", annotation_position="bottom left")
-            fig_pos.add_vline(x=p_pos['Q3 (75%)'], line_width=2, line_dash="dot", line_color="#a855f7", annotation_text=f"Q3 = {p_pos['Q3 (75%)']:.2f}", annotation_position="bottom right")
-
-            fig_pos.update_layout(
-                template="plotly_dark",
-                title=f"Paramètres de position annotés sur l'histogramme - {colonne_selectionnee}",
-                xaxis_title=colonne_selectionnee,
-                yaxis_title="Effectif",
-                height=450
-            )
-            st.plotly_chart(fig_pos, use_container_width=True)
-
-        with tab_g2:
-            fig_disp = go.Figure()
-            fig_disp.add_trace(go.Histogram(
-                x=serie,
-                name='Distribution',
-                marker=dict(color='rgba(16, 185, 129, 0.55)', line=dict(color='black', width=1.5)),
-                opacity=0.75
-            ))
-
-            # Zone IQR
-            fig_disp.add_vrect(
-                x0=p_pos['Q1 (25%)'], x1=p_pos['Q3 (75%)'],
-                fillcolor="rgba(59, 130, 246, 0.2)",
-                layer="below", line_width=0,
-                annotation_text=f"Zone IQR = {p_disp['IQR (Q3 - Q1)']:.2f}",
-                annotation_position="top left"
-            )
-
-            # Lignes x_bar ± s
-            x_bar = p_pos['Moyenne']
-            s = p_disp['Écart-type (s)']
-            fig_disp.add_vline(x=x_bar, line_width=2, line_color="#ef4444", annotation_text="x̄")
-            fig_disp.add_vline(x=x_bar - s, line_width=2, line_dash="dash", line_color="#c084fc", annotation_text="x̄ - s")
-            fig_disp.add_vline(x=x_bar + s, line_width=2, line_dash="dash", line_color="#c084fc", annotation_text="x̄ + s")
-
-            fig_disp.update_layout(
-                template="plotly_dark",
-                title=f"Dispersion : Zone Interquartile et Intervalle [x̄ - s ; x̄ + s] - {colonne_selectionnee}",
-                xaxis_title=colonne_selectionnee,
-                yaxis_title="Effectif",
-                height=450
-            )
-            st.plotly_chart(fig_disp, use_container_width=True)
-
-
-# -----------------------------------------------------------------------------
-# SECTION 4 : INTERPOLATION LINÉAIRE SUR HISTOGRAMME
-# -----------------------------------------------------------------------------
-elif section_menu.startswith("4."):
-    st.markdown(f"## 📐 4. Détermination de Me, Q1 et Q3 par Interpolation Linéaire sur Histogramme")
-    st.markdown("""
-    Lorsque les données sont regroupées en classes $[L_i ; L_{i+1}[$, la formule générale d'interpolation linéaire est :
-    """)
-
-    st.markdown(r"""
-    <div class="formula-box">
-        <b>Formule d'Interpolation Linéaire du quantile $Q_p$ :</b><br>
-        $$Q_p = L_i + \left( \frac{p \cdot n - N_{i-1}}{n_i} \right) \times a_i$$
-        <span style="font-size: 0.85rem; color: #94a3b8;">
-        • $L_i$ : borne inférieure de la classe contenant $Q_p$<br>
-        • $p$ : rang relatif ($0.25$ pour $Q_1$, $0.50$ pour la Médiane $Me$, $0.75$ pour $Q_3$)<br>
-        • $N_{i-1}$ : effectif cumulé avant la classe $i$<br>
-        • $n_i$ : effectif de la classe $i$<br>
-        • $a_i$ : amplitude de la classe $i$ ($L_{i+1} - L_i$)<br>
-        • $n$ : effectif total
-        </span>
-    </div>
-    """, unsafe_allow_html=True)
-
-    serie = df_actuel[colonne_selectionnee].dropna()
-    if not np.issubdtype(serie.dtype, np.number):
-        st.warning("⚠️ Veuillez sélectionner une variable quantitative.")
-    else:
-        meth_interp = st.selectbox("Règle de discrétisation pour l'interpolation :", ['sturges', 'yule', 'fd'], index=0)
-        res_interp = quantiles_par_interpolation(serie, methode=meth_interp)
-
-        # Tableau détaillé de calcul (Listing 10 & Section 8.3)
-        bornes = res_interp['bornes']
-        effs = res_interp['effectifs']
-        effs_cum = res_interp['effectifs_cum']
-        amps = res_interp['amplitudes']
-
-        table_rows = []
-        for i in range(len(effs)):
-            classe_str = f"[{bornes[i]:.2f} ; {bornes[i+1]:.2f}["
-            annotations = []
-            if i == res_interp['details']['Q1']['idx']:
-                annotations.append("⬅ Classe de Q1")
-            if i == res_interp['details']['Me']['idx']:
-                annotations.append("⬅ Classe de Me")
-            if i == res_interp['details']['Q3']['idx']:
-                annotations.append("⬅ Classe de Q3")
-
-            table_rows.append({
-                'Classe [Li ; Li+1[': classe_str,
-                'Effectif n_i': effs[i],
-                'Eff. Cumulé N_i': effs_cum[i],
-                'Amplitude a_i': round(amps[i], 2),
-                'Repérage des Quantiles': " & ".join(annotations) if annotations else ""
-            })
-
-        st.markdown("### 📋 Tableau de Calcul Détaillé (Section 8.3)")
-        st.dataframe(pd.DataFrame(table_rows), use_container_width=True)
-
-        col_q1, col_me, col_q3 = st.columns(3)
-        with col_q1:
-            d = res_interp['details']['Q1']
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">Q1 Interpolé (25%)</div>
-                <div class="metric-value">{res_interp['Q1']:.4f}</div>
-                <div class="metric-sub">Classe : [{bornes[d['idx']]:.2f} ; {bornes[d['idx']+1]:.2f}[</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with col_me:
-            d = res_interp['details']['Me']
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">Médiane Interpolée (50%)</div>
-                <div class="metric-value">{res_interp['Me (Q2)']:.4f}</div>
-                <div class="metric-sub">Classe : [{bornes[d['idx']]:.2f} ; {bornes[d['idx']+1]:.2f}[</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with col_q3:
-            d = res_interp['details']['Q3']
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">Q3 Interpolé (75%)</div>
-                <div class="metric-value">{res_interp['Q3']:.4f}</div>
-                <div class="metric-sub">Classe : [{bornes[d['idx']]:.2f} ; {bornes[d['idx']+1]:.2f}[</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-        st.markdown("---")
-        st.markdown("### ⚖️ Comparaison : Valeurs Exactes (Données Brutes) vs Valeurs Interpolées")
-
-        q_exact_q1 = np.percentile(serie, 25)
-        q_exact_me = np.percentile(serie, 50)
-        q_exact_q3 = np.percentile(serie, 75)
-        q_exact_iqr = q_exact_q3 - q_exact_q1
-
-        comp_df = pd.DataFrame({
-            'Quantile': ['Q1 (25%)', 'Médiane Me (50%)', 'Q3 (75%)', 'IQR (Q3 - Q1)'],
-            'Exact (Données Brutes)': [round(q_exact_q1, 4), round(q_exact_me, 4), round(q_exact_q3, 4), round(q_exact_iqr, 4)],
-            f'Interpolé ({meth_interp.upper()})': [
-                round(res_interp['Q1'], 4),
-                round(res_interp['Me (Q2)'], 4),
-                round(res_interp['Q3'], 4),
-                round(res_interp['IQR (Q3 - Q1)'], 4)
-            ]
-        })
-        comp_df['Écart Absolu'] = (comp_df[f'Interpolé ({meth_interp.upper()})'] - comp_df['Exact (Données Brutes)']).round(4)
-        comp_df['Écart Relatif (%)'] = ((comp_df['Écart Absolu'].abs() / comp_df['Exact (Données Brutes)']) * 100).round(2)
-
-        st.dataframe(comp_df, use_container_width=True)
-
-        st.markdown("### 📊 Histogramme avec Visualisation de l'Interpolation (Section 8.4)")
-        fig_int = go.Figure()
-        fig_int.add_trace(go.Histogram(
-            x=serie,
-            xbins=dict(start=bornes[0], end=bornes[-1], size=amps[0]),
-            marker=dict(color='rgba(129, 140, 248, 0.65)', line=dict(color='black', width=1.5)),
-            name='Effectifs'
-        ))
-        # Annotations verticales
-        fig_int.add_vline(x=res_interp['Q1'], line_width=2.5, line_dash="dash", line_color="#f59e0b", annotation_text=f"Q1 Interp = {res_interp['Q1']:.2f}")
-        fig_int.add_vline(x=res_interp['Me (Q2)'], line_width=2.5, line_color="#ef4444", annotation_text=f"Me Interp = {res_interp['Me (Q2)']:.2f}")
-        fig_int.add_vline(x=res_interp['Q3'], line_width=2.5, line_dash="dash", line_color="#a855f7", annotation_text=f"Q3 Interp = {res_interp['Q3']:.2f}")
-
-        # Zone IQR
-        fig_int.add_vrect(
-            x0=res_interp['Q1'], x1=res_interp['Q3'],
-            fillcolor="rgba(99, 102, 241, 0.2)",
-            layer="below", line_width=0,
-            annotation_text=f"IQR Interp = {res_interp['IQR (Q3 - Q1)']:.2f}",
-            annotation_position="top left"
-        )
-        fig_int.update_layout(template="plotly_dark", height=450, title=f"Quantiles déterminés par interpolation sur histogramme - {colonne_selectionnee}")
-        st.plotly_chart(fig_int, use_container_width=True)
-
-
-# -----------------------------------------------------------------------------
-# SECTION 5 : COURBE CUMULATIVE & DETERMINATION DE Me, Q1, Q2, Q3, D6
-# -----------------------------------------------------------------------------
-elif section_menu.startswith("5."):
-    st.markdown(f"## 📈 5. Détermination de Me, Q1, Q2, Q3 et D6 à partir de la Courbe Cumulative")
-    st.markdown("""
-    La **courbe cumulative (Ogive)** représente les fréquences cumulées croissantes.
-    Pour lire graphiquement un quantile $Q_p$ :
-    1. On trace l'horizontale à la fréquence cumulée cible $p$ ($0.25, 0.50, 0.60, 0.75$).
-    2. Elle coupe la courbe en un point d'abscisse $Q_p$.
-    3. On projette verticalement sur l'axe des abscisses.
-    """)
-
-    serie = df_actuel[colonne_selectionnee].dropna()
-    if not np.issubdtype(serie.dtype, np.number):
-        st.warning("⚠️ Veuillez sélectionner une variable quantitative.")
-    else:
-        methode_ogive = st.selectbox("Règle de discrétisation pour l'ogive :", ['sturges', 'yule', 'fd'], index=0)
-        bornes, f_cum, quantiles_og = courbe_cumulative_quantiles(serie, methode=methode_ogive)
-
-        # Tableau récapitulatif des quantiles (Section 9.3)
-        tab_quantiles = pd.DataFrame([
-            {'Quantile': 'Q1', 'Fréquence Cumulée': 0.25, 'Valeur Lue / Interpolée': round(quantiles_og['Q1 (25%)'], 4), 'Interprétation': f"25% des individus ont {colonne_selectionnee} ≤ {quantiles_og['Q1 (25%)']:.2f}"},
-            {'Quantile': 'Q2 = Me', 'Fréquence Cumulée': 0.50, 'Valeur Lue / Interpolée': round(quantiles_og['Q2 - Médiane (50%)'], 4), 'Interprétation': f"50% des individus ont {colonne_selectionnee} ≤ {quantiles_og['Q2 - Médiane (50%)']:.2f}"},
-            {'Quantile': 'D6 (6e décile)', 'Fréquence Cumulée': 0.60, 'Valeur Lue / Interpolée': round(quantiles_og['D6 (60%)'], 4), 'Interprétation': f"60% des individus ont {colonne_selectionnee} ≤ {quantiles_og['D6 (60%)']:.2f}"},
-            {'Quantile': 'Q3', 'Fréquence Cumulée': 0.75, 'Valeur Lue / Interpolée': round(quantiles_og['Q3 (75%)'], 4), 'Interprétation': f"75% des individus ont {colonne_selectionnee} ≤ {quantiles_og['Q3 (75%)']:.2f}"}
-        ])
-
-        st.markdown("### 📋 Tableau Récapitulatif des Quantiles (Section 9.3)")
-        st.dataframe(tab_quantiles, use_container_width=True)
-
-        # Tracé interactif avec projections horizontales et verticales
-        fig_og = go.Figure()
-        # Courbe principale
-        fig_og.add_trace(go.Scatter(
-            x=bornes[1:],
-            y=f_cum,
-            mode='lines+markers',
-            name='Courbe Cumulative',
-            line=dict(color='#2dd4bf', width=3),
-            fill='tozeroy',
-            fillcolor='rgba(45, 212, 191, 0.12)'
-        ))
-
-        couleurs_q = {
-            'Q1 (25%)': ('#f59e0b', 0.25),
-            'Q2 - Médiane (50%)': ('#ef4444', 0.50),
-            'D6 (60%)': ('#ec4899', 0.60),
-            'Q3 (75%)': ('#8b5cf6', 0.75)
-        }
-
-        for nom, (c_hex, p_val) in couleurs_q.items():
-            val_x = quantiles_og[nom]
-            # Ligne horizontale de projection
-            fig_og.add_trace(go.Scatter(
-                x=[bornes[0], val_x],
-                y=[p_val, p_val],
-                mode='lines',
-                line=dict(color=c_hex, width=1.5, dash='dash'),
-                showlegend=False
-            ))
-            # Ligne verticale de projection
-            fig_og.add_trace(go.Scatter(
-                x=[val_x, val_x],
-                y=[0, p_val],
-                mode='lines',
-                line=dict(color=c_hex, width=1.5, dash='dot'),
-                showlegend=False
-            ))
-            # Point d'intersection
-            fig_og.add_trace(go.Scatter(
-                x=[val_x],
-                y=[p_val],
-                mode='markers+text',
-                marker=dict(size=10, color=c_hex, line=dict(color='white', width=1.5)),
-                text=[f"{nom.split()[0]} = {val_x:.2f}"],
-                textposition='top left',
-                name=nom
-            ))
-
-        fig_og.update_layout(
-            template="plotly_dark",
-            title=f"Lecture Graphique des Quantiles sur la Courbe Cumulative - {colonne_selectionnee}",
-            xaxis_title=colonne_selectionnee,
-            yaxis_title="Fréquence Cumulée",
-            yaxis=dict(range=[0, 1.05]),
-            height=500
-        )
-        st.plotly_chart(fig_og, use_container_width=True)
-
-        # Interprétation automatique (Section 9.6 & Listing 15)
-        st.markdown("### 🧠 Interprétation Automatique des Résultats (Section 9.6)")
-        moy = serie.mean()
-        med = serie.median()
-        q1_ex = np.percentile(serie, 25)
-        q3_ex = np.percentile(serie, 75)
-        iqr_ex = q3_ex - q1_ex
-        d6_ex = np.percentile(serie, 60)
-        s_std = serie.std()
-
-        # Analyse de la symétrie
-        if abs(moy - med) < 0.1 * s_std:
-            sym_msg = "Distribution **quasi-symétrique** (Moyenne ≈ Médiane)."
-        elif moy > med:
-            sym_msg = "Distribution **asymétrique à droite / étalée vers le haut** (Moyenne > Médiane)."
-        else:
-            sym_msg = "Distribution **asymétrique à gauche / étalée vers le bas** (Moyenne < Médiane)."
-
-        # Analyse de dispersion IQR
-        if iqr_ex < s_std:
-            disp_msg = "Données **concentrées** autour de la médiane (IQR < écart-type)."
-        else:
-            disp_msg = "Données **dispersées** dans les 50% centraux (IQR > écart-type)."
-
-        # Dispersion supérieure D6
-        if (d6_ex - med) > (q3_ex - med):
-            d6_msg = "Forte dispersion dans la partie supérieure (D6 - Me élevé)."
-        else:
-            d6_msg = "Dispersion modérée dans la partie supérieure."
-
-        st.markdown(f"""
-        <div class="interp-box">
-            <b>Rapport d'Interprétation Automatique :</b><br>
-            • <b>Forme :</b> {sym_msg}<br>
-            • <b>Dispersion centrale :</b> {disp_msg} (IQR = {iqr_ex:.2f}, Écart-type = {s_std:.2f})<br>
-            • <b>Partie supérieure :</b> {d6_msg} (D6 - Me = {d6_ex - med:.2f})
-        </div>
-        """, unsafe_allow_html=True)
-
-
-# -----------------------------------------------------------------------------
-# SECTION 6 : DIAGRAMME DE TUKEY & DÉTECTION DES OUTLIERS
-# -----------------------------------------------------------------------------
-elif section_menu.startswith("6."):
-    st.markdown(f"## 📦 6. Diagramme de Tukey & Détection des Points Aberrants : `{colonne_selectionnee}`")
-    st.markdown("""
-    Le diagramme de Tukey (Boîte à moustaches / Boxplot) repose sur les quantiles et la règle d'éloignement :
-    - **Bornes modérées :** $L_{inf} = Q_1 - 1.5 \times \text{IQR}$ et $L_{sup} = Q_3 + 1.5 \times \text{IQR}$
-    - **Bornes extrêmes :** $Q_1 - 3.0 \times \text{IQR}$ et $Q_3 + 3.0 \times \text{IQR}$
-    """)
-
-    serie = df_actuel[colonne_selectionnee].dropna()
-    if not np.issubdtype(serie.dtype, np.number):
-        st.warning("⚠️ Veuillez sélectionner une variable quantitative.")
-    else:
-        p_tukey = parametres_tukey(serie)
-        outliers_df = detecter_points_aberrants(df_actuel, colonne_selectionnee)
-
-        col_t1, col_t2, col_t3, col_t4 = st.columns(4)
-        with col_t1:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">Borne Inf (L_inf)</div>
-                <div class="metric-value">{p_tukey['L_inf (Modéré)']:.2f}</div>
-                <div class="metric-sub">Q1 - 1.5 × IQR</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with col_t2:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">Médiane (Q2)</div>
-                <div class="metric-value">{p_tukey['Q2 (Médiane)']:.2f}</div>
-                <div class="metric-sub">Ligne centrale</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with col_t3:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">Borne Sup (L_sup)</div>
-                <div class="metric-value">{p_tukey['L_sup (Modéré)']:.2f}</div>
-                <div class="metric-sub">Q3 + 1.5 × IQR</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with col_t4:
-            nb_out = len(outliers_df)
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">Outliers Détectés</div>
-                <div class="metric-value" style="color: {'#ef4444' if nb_out > 0 else '#10b981'};">{nb_out}</div>
-                <div class="metric-sub">Points au-delà des bornes</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-        st.markdown("### 📊 Boxplot Interactif de Tukey avec Lignes Repères (Section 10.4)")
-        fig_tukey = go.Figure()
-        fig_tukey.add_trace(go.Box(
-            y=serie,
-            name=colonne_selectionnee,
-            boxpoints='all',
-            jitter=0.3,
-            pointpos=-1.8,
-            marker=dict(color='#38bdf8', size=7),
-            line=dict(color='#818cf8', width=2),
-            fillcolor='rgba(99, 102, 241, 0.3)'
-        ))
-
-        # Lignes repères L_inf et L_sup
-        fig_tukey.add_hline(y=p_tukey['L_inf (Modéré)'], line_dash="dash", line_color="#f59e0b", annotation_text=f"L_inf = {p_tukey['L_inf (Modéré)']:.2f}")
-        fig_tukey.add_hline(y=p_tukey['L_sup (Modéré)'], line_dash="dash", line_color="#f59e0b", annotation_text=f"L_sup = {p_tukey['L_sup (Modéré)']:.2f}")
-        fig_tukey.add_hline(y=p_tukey['Moyenne'], line_dash="dot", line_color="#ec4899", annotation_text=f"Moyenne = {p_tukey['Moyenne']:.2f}")
-
-        fig_tukey.update_layout(
-            template="plotly_dark",
-            title=f"Diagramme de Tukey annoté - {colonne_selectionnee}",
-            yaxis_title=colonne_selectionnee,
-            height=460
-        )
-        st.plotly_chart(fig_tukey, use_container_width=True)
-
-        st.markdown("### 🚩 Points Aberrants Identifiés (Critère de Tukey vs Z-Score)")
-        if len(outliers_df) > 0:
-            st.dataframe(outliers_df, use_container_width=True)
-        else:
-            st.success("✅ Aucun point aberrant détecté dans cette variable selon le critère de Tukey (1.5×IQR).")
-
-        # Comparaison Tukey vs Z-score (Section 10.5)
-        with st.expander("🔬 Comparaison Méthode Tukey vs Méthode Z-Score (Section 10.5)", expanded=False):
-            st.markdown("""
-            > **Remarque importante (Fiche TP - Section 10.5) :**  
-            > La méthode du **Z-Score** suppose une distribution normale et est sensible aux valeurs extrêmes.  
-            > La méthode de **Tukey** (fondée sur l'IQR) est **robuste** et ne fait aucune hypothèse sur la distribution.
-            """)
-            seuil_z = st.slider("Seuil Z-Score pour déclarer un point aberrant :", 2.0, 4.0, 3.0, 0.1)
-            z_vals = np.abs(stats.zscore(serie))
-            outliers_z = serie[z_vals > seuil_z]
-            st.write(f"Points détectés avec |Z-Score| > {seuil_z} : **{len(outliers_z)}** point(s).")
-            if len(outliers_z) > 0:
-                st.write(df_actuel.loc[outliers_z.index])
-
-
-# -----------------------------------------------------------------------------
-# SECTION 7 : TRANSFORMATION DISCRET -> CONTINU
-# -----------------------------------------------------------------------------
-elif section_menu.startswith("7."):
-    st.markdown(f"## 🔄 7. Transformation d'une Variable Discrète en Continue (Section 11)")
-    st.markdown("""
-    Cette opération regroupe une variable discrète en classes continues d'intervalles $[L_i ; L_{i+1}]$
-    selon l'une des trois règles fondamentales du TP : **Sturges, Yule ou Freedman-Diaconis**.
-    """)
-
-    serie = df_actuel[colonne_selectionnee].dropna()
-    if not np.issubdtype(serie.dtype, np.number):
-        st.warning("⚠️ Veuillez sélectionner une variable quantitative.")
-    else:
-        meth_t = st.radio("Sélectionnez la règle de discrétisation :", ['sturges', 'yule', 'fd'], index=0, horizontal=True)
-
-        if meth_t == 'sturges':
-            bornes, nb_k = creer_classes_sturges(serie)
-            nom_m = "Sturges"
-        elif meth_t == 'yule':
-            bornes, nb_k = creer_classes_yule(serie)
-            nom_m = "Yule"
-        else:
-            bornes, nb_k = creer_classes_freedman_diaconis(serie)
-            nom_m = "Freedman-Diaconis"
-
-        labels_cut = [f"[{bornes[i]:.2f} - {bornes[i+1]:.2f}]" for i in range(len(bornes) - 1)]
-
-        df_transf = df_actuel.copy()
-        df_transf[f"{colonne_selectionnee}_continu"] = pd.cut(
-            serie,
-            bins=bornes,
-            include_lowest=True,
-            labels=labels_cut
-        )
-
-        tab_freq_cut = df_transf[f"{colonne_selectionnee}_continu"].value_counts().sort_index()
-        tab_res = pd.DataFrame({
-            'Classe': tab_freq_cut.index,
-            'Effectif': tab_freq_cut.values,
-            'Fréquence': (tab_freq_cut.values / len(serie)).round(4),
-            'Fréquence (%)': ((tab_freq_cut.values / len(serie)) * 100).round(2)
-        })
-
-        col_c1, col_c2 = st.columns([1.2, 1.8])
-        with col_c1:
-            st.markdown(f"### 📑 Tableau Discrétisé ({nom_m} - {nb_k} classes)")
-            st.dataframe(tab_res, use_container_width=True)
-
-        with col_c2:
-            st.markdown("### 📊 Distribution par Classe")
-            fig_cut = px.bar(
-                tab_res,
-                x='Classe',
-                y='Effectif',
-                text='Effectif',
-                color='Classe',
-                title=f"Discrétisation de {colonne_selectionnee} ({nom_m})"
-            )
-            fig_cut.update_layout(template="plotly_dark", height=380)
-            st.plotly_chart(fig_cut, use_container_width=True)
-
-        with st.expander("👀 Voir le dataset avec la nouvelle colonne discrétisée"):
-            st.dataframe(df_transf[[colonne_selectionnee, f"{colonne_selectionnee}_continu"]].head(20), use_container_width=True)
-
-
-# -----------------------------------------------------------------------------
-# SECTION 8 : OPÉRATION INVERSE (GRAPHIQUE -> TABLEAU)
-# -----------------------------------------------------------------------------
-elif section_menu.startswith("8."):
-    st.markdown("## ↩️ 8. Opération Inverse : Reconstitution Graphique $\\rightarrow$ Tableau (Section 12)")
-    st.markdown("""
-    À partir d'une représentation graphique donnée (ou d'estimations visuelles), cette section permet de reconstituer
-    l'effectif total, les effectifs par modalité, les fréquences et la nature de la variable.
-    """)
-
-    mode_inverse = st.selectbox(
-        "Sélectionnez le type de graphique source à reconstituer :",
-        [
-            "12.1 Reconstitution depuis un Diagramme Circulaire",
-            "12.2 Reconstitution depuis une Courbe en Escalier",
-            "12.3 Reconstitution depuis un Histogramme"
-        ]
-    )
-
-    if "Circulaire" in mode_inverse:
-        st.markdown("### 🥧 Reconstitution depuis un Diagramme Circulaire")
-        st.markdown("*Exemple par défaut du TP : Variable 'Genre', Population = 50, Catégories = ['M', 'F'], Pourcentages = [50%, 50%]*")
-
-        col_in1, col_in2 = st.columns(2)
-        with col_in1:
-            nom_var_circ = st.text_input("Nom de la variable :", "Genre")
-            pop_circ = st.number_input("Population totale (n) :", min_value=1, value=50, step=1)
-        with col_in2:
-            cats_input = st.text_input("Catégories (séparées par une virgule) :", "M, F")
-            pct_input = st.text_input("Pourcentages correspondants (%) :", "50, 50")
-
-        try:
-            cats = [c.strip() for c in cats_input.split(',')]
-            pcts = [float(p.strip()) for p in pct_input.split(',')]
-            if len(cats) != len(pcts):
-                st.error("Le nombre de catégories doit être égal au nombre de pourcentages.")
-            else:
-                effs = [round(p * pop_circ / 100) for p in pcts]
-                diff = pop_circ - sum(effs)
-                if diff != 0:
-                    effs[-1] += diff
-
-                freqs = [e / pop_circ for e in effs]
-                tab_reconst = pd.DataFrame({
-                    'Modalité': cats,
-                    'Pourcentage (%)': pcts,
-                    'Effectif Reconstitué (n_i)': effs,
-                    'Fréquence (f_i)': [round(f, 4) for f in freqs],
-                    'Fréquence Cumulée': np.cumsum(freqs).round(4)
-                })
-
-                st.success(f"Variable : **{nom_var_circ}** | Population : **{pop_circ}** | Type : **Qualitative**")
-                st.dataframe(tab_reconst, use_container_width=True)
-        except Exception as e:
-            st.error(f"Erreur dans les paramètres saisis : {e}")
-
-    elif "Escalier" in mode_inverse:
-        st.markdown("### 🪜 Reconstitution depuis une Courbe en Escalier")
-        st.markdown("*Exemple du TP (Listing 21) : Variable 'Age', n = 50, x = [20, 22, 24, 26, 28], F(x) = [0.2, 0.4, 0.7, 0.85, 1.0]*")
-
-        col_es1, col_es2 = st.columns(2)
-        with col_es1:
-            nom_var_esc = st.text_input("Nom de la variable :", "Age")
-            pop_esc = st.number_input("Population totale (n) :", min_value=1, value=50, step=1, key="pop_esc")
-        with col_es2:
-            x_vals_input = st.text_input("Valeurs x_i :", "20, 22, 24, 26, 28")
-            fcum_vals_input = st.text_input("Fréquences cumulées F(x) :", "0.2, 0.4, 0.7, 0.85, 1.0")
-
-        try:
-            x_vals = [float(x.strip()) for x in x_vals_input.split(',')]
-            f_cum = np.array([float(f.strip()) for f in fcum_vals_input.split(',')])
-
-            f_ind = np.diff(np.concatenate([[0], f_cum]))
-            effs = [round(f * pop_esc) for f in f_ind]
-            diff = pop_esc - sum(effs)
-            if diff != 0:
-                effs[-1] += diff
-
-            tab_esc = pd.DataFrame({
-                'Valeur / Modalité (x_i)': x_vals,
-                'Effectif Reconstitué (n_i)': effs,
-                'Fréquence (f_i)': [round(e / pop_esc, 4) for e in effs],
-                'Fréquence Cumulée F(x)': [round(fc, 4) for fc in f_cum]
-            })
-
-            st.success(f"Variable : **{nom_var_esc}** | Population : **{pop_esc}** | Type : **Quantitative Discrète**")
-            st.dataframe(tab_esc, use_container_width=True)
-        except Exception as e:
-            st.error(f"Erreur : {e}")
-
-    else:
-        st.markdown("### 📊 Reconstitution depuis un Histogramme")
-        st.markdown("*Exemple du TP (Listing 21) : Variable 'Note_Stats', Bornes = [8, 10, 12, 14, 16, 18, 20], Effectifs = [5, 8, 12, 15, 7, 3]*")
-
-        col_h1, col_h2 = st.columns(2)
-        with col_h1:
-            nom_var_hist = st.text_input("Nom de la variable :", "Note_Stats")
-            bornes_input = st.text_input("Bornes des classes (séparées par une virgule) :", "8, 10, 12, 14, 16, 18, 20")
-        with col_h2:
-            effs_input = st.text_input("Effectifs par classe (n_i) :", "5, 8, 12, 15, 7, 3")
-
-        try:
-            b_list = [float(b.strip()) for b in bornes_input.split(',')]
-            e_list = [int(e.strip()) for e in effs_input.split(',')]
-
-            if len(b_list) - 1 != len(e_list):
-                st.error("Le nombre de classes (bornes - 1) doit correspondre au nombre d'effectifs saisis.")
-            else:
-                pop_tot = sum(e_list)
-                freqs = [e / pop_tot for e in e_list]
-                labels = [f"[{b_list[i]:.2f} ; {b_list[i+1]:.2f}[" for i in range(len(e_list))]
-
-                tab_hist_rec = pd.DataFrame({
-                    'Classe [Li ; Li+1[': labels,
-                    'Effectif (n_i)': e_list,
-                    'Fréquence (f_i)': [round(f, 4) for f in freqs],
-                    'Fréquence (%)': [round(f * 100, 2) for f in freqs],
-                    'Fréquence Cumulée': np.cumsum(freqs).round(4)
-                })
-
-                st.success(f"Variable : **{nom_var_hist}** | Population Totale Reconstituée : **{pop_tot}** | Type : **Quantitative Continue**")
-                st.dataframe(tab_hist_rec, use_container_width=True)
-        except Exception as e:
-            st.error(f"Erreur : {e}")
-
-
-# -----------------------------------------------------------------------------
-# SECTION 9 : DASHBOARD DE SYNTHÈSE GLOBAL
-# -----------------------------------------------------------------------------
-elif section_menu.startswith("9."):
-    st.markdown("## 📑 9. Dashboard de Synthèse Global (Section 13, 14 & 15)")
-    st.markdown("""
-    Rapport d'analyse statistique complet généré automatiquement pour l'ensemble des variables du dataset.
-    """)
-
-    tab_syn1, tab_syn2, tab_syn3 = st.tabs([
-        "📋 Synthèse des Variables Numériques",
-        "🏷️ Synthèse des Variables Qualitatives",
-        "📚 Aide-Mémoire & Formules du TP"
+    if not callout_num(serie):
+        st.stop()
+
+    p_pos = parametres_position(serie)
+    p_disp = parametres_dispersion(serie)
+
+    md('<div class="mini-title">Position</div>')
+    kpi_row([
+        ("Moyenne (x̄)", fmt_num(p_pos["Moyenne"]), "centre de gravité"),
+        ("Médiane (Q2)", fmt_num(p_pos["Médiane (Q2)"]), "valeur 50 %"),
+        ("Mode (Mo)", fmt_num(p_pos["Mode"]), "valeur la plus fréquente"),
+        ("Q1 / Q3", f"{fmt_num(p_pos['Q1 (25%)'], 1)} / {fmt_num(p_pos['Q3 (75%)'], 1)}", "25 % et 75 %"),
     ])
 
-    with tab_syn1:
-        cols_num = [c for c in df_actuel.columns if np.issubdtype(df_actuel[c].dtype, np.number) and c.upper() != 'ID']
-        if cols_num:
-            rows_num = []
-            for c in cols_num:
-                s = df_actuel[c].dropna()
-                q1, q2, q3 = np.percentile(s, [25, 50, 75])
-                iqr = q3 - q1
-                rows_num.append({
-                    'Variable': c,
-                    'Type': detecter_type_variable(s),
-                    'n': len(s),
-                    'Moyenne': round(s.mean(), 2),
-                    'Médiane': round(q2, 2),
-                    'Écart-type': round(s.std(), 2),
-                    'Étendue': round(s.max() - s.min(), 2),
-                    'IQR': round(iqr, 2),
-                    'Min': round(s.min(), 2),
-                    'Max': round(s.max(), 2),
-                    'CV (%)': round(s.std() / s.mean() * 100, 2) if s.mean() != 0 else np.nan,
-                    'Asymétrie': round(s.skew(), 2),
-                    'Outliers': len(detecter_points_aberrants(df_actuel, c))
-                })
-            st.dataframe(pd.DataFrame(rows_num), use_container_width=True)
+    st.write("")
+    md('<div class="mini-title">Dispersion & forme</div>')
+    kpi_row([
+        ("Étendue (E)", fmt_num(p_disp["Étendue"]), "max − min"),
+        ("IQR", fmt_num(p_disp["IQR (Q3 - Q1)"]), "Q3 − Q1"),
+        ("Écart-type (s)", fmt_num(p_disp["Écart-type (s)"]), f"variance = {fmt_num(p_disp['Variance (s²)'])}"),
+        ("Coefficient de variation", f"{fmt_num(p_disp['CV (%)'])} %", "s / x̄ × 100"),
+    ])
 
-            st.markdown("### 📊 Comparaison Visuelle des Distributions")
-            fig_multi_box = px.box(
-                df_actuel[cols_num],
-                points="all",
-                title="Boxplots Comparatifs des Variables Numériques",
-                template="plotly_dark"
+    st.write("")
+    with st.expander("📋 Tableau récapitulatif de tous les paramètres", expanded=True):
+        show_table(parametres_table(serie), max_height=460)
+
+    tab_pos, tab_disp = st.tabs([
+        "Lignes de position",
+        "Zones de dispersion",
+    ])
+
+    with tab_pos:
+        fig_pos = go.Figure()
+        fig_pos.add_trace(go.Histogram(
+            x=serie,
+            name="Distribution",
+            marker=dict(color="rgba(99, 102, 241, 0.55)",
+                        line=dict(color=THEME["chart"]["pie_line"], width=1.2)),
+            opacity=0.85,
+        ))
+        for value, label, color, dash in [
+            (p_pos["Moyenne"], f"Moyenne = {fmt_num(p_pos['Moyenne'])}", THEME["css"]["danger"], "solid"),
+            (p_pos["Médiane (Q2)"], f"Médiane = {fmt_num(p_pos['Médiane (Q2)'])}", THEME["css"]["success"], "dash"),
+            (p_pos["Q1 (25%)"], f"Q1 = {fmt_num(p_pos['Q1 (25%)'])}", THEME["css"]["warning"], "dot"),
+            (p_pos["Q3 (75%)"], f"Q3 = {fmt_num(p_pos['Q3 (75%)'])}", THEME["chart"]["colorway"][5], "dot"),
+        ]:
+            fig_pos.add_vline(x=value, line_width=2, line_dash=dash,
+                              line_color=color, annotation_text=label,
+                              annotation_position="top")
+        plot(fig_pos, height=430, title="Paramètres de position sur l’histogramme")
+
+    with tab_disp:
+        fig_disp = go.Figure()
+        fig_disp.add_trace(go.Histogram(
+            x=serie,
+            name="Distribution",
+            marker=dict(color="rgba(16, 185, 129, 0.45)",
+                        line=dict(color=THEME["chart"]["pie_line"], width=1.2)),
+            opacity=0.85,
+        ))
+        fig_disp.add_vrect(
+            x0=p_pos["Q1 (25%)"], x1=p_pos["Q3 (75%)"],
+            fillcolor="rgba(59, 130, 246, 0.18)", layer="below", line_width=0,
+            annotation_text=f"IQR = {fmt_num(p_disp['IQR (Q3 - Q1)'])}",
+            annotation_position="top left",
+        )
+        x_bar = p_pos["Moyenne"]
+        ecart = p_disp["Écart-type (s)"]
+        fig_disp.add_vline(x=x_bar, line_width=2, line_color=THEME["css"]["danger"],
+                           annotation_text="x̄", annotation_position="top")
+        fig_disp.add_vline(x=x_bar - ecart, line_width=2, line_dash="dash",
+                           line_color=THEME["chart"]["colorway"][5],
+                           annotation_text="x̄ − s", annotation_position="bottom")
+        fig_disp.add_vline(x=x_bar + ecart, line_width=2, line_dash="dash",
+                           line_color=THEME["chart"]["colorway"][5],
+                           annotation_text="x̄ + s", annotation_position="bottom")
+        plot(fig_disp, height=430, title="Zone interquartile et intervalle [x̄ − s ; x̄ + s]")
+
+# -----------------------------------------------------------------------------
+# SECTION 4 — Interpolation linéaire
+# -----------------------------------------------------------------------------
+elif section == 4:
+    md(section_head("⚖️", "Interpolation linéaire sur histogramme",
+                    "Détermination de Q1, Me et Q3 à partir des données regroupées en classes."))
+
+    st.markdown(
+        "Lorsque les données sont regroupées en classes, on approxime le quantile "
+        "$Q_p$ par interpolation linéaire à l’intérieur de la classe qui le contient :"
+    )
+    st.latex(r"Q_p = L_i + \left(\frac{p \cdot n - N_{i-1}}{n_i}\right) \times a_i")
+    md(callout(
+        "Légende",
+        "$L_i$ borne inférieure de la classe · $p$ rang relatif (0.25, 0.50, 0.75) · "
+        "$N_{i-1}$ effectif cumulé avant la classe · $n_i$ effectif de la classe · "
+        "$a_i$ amplitude · $n$ effectif total.",
+        "info", "📖",
+    ))
+
+    serie = df_actuel[colonne_selectionnee].dropna()
+    if not callout_num(serie):
+        st.stop()
+
+    methode = st.selectbox("Règle de discrétisation", ["sturges", "yule", "fd"], index=0)
+    res = quantiles_par_interpolation(serie, methode)
+
+    bornes = res["bornes"]
+    effectifs = res["effectifs"]
+    effectifs_cum = res["effectifs_cum"]
+    amplitudes = res["amplitudes"]
+
+    rows = []
+    for i in range(len(effectifs)):
+        annotations = []
+        for key, libelle in [("Q1", "Q1"), ("Me", "Me"), ("D6", "D6"), ("Q3", "Q3")]:
+            if i == res["details"][key]["idx"]:
+                annotations.append(libelle)
+        rows.append({
+            "Classe [L_i ; L_i+1[": f"[{bornes[i]:.2f} ; {bornes[i + 1]:.2f}[",
+            "n_i": int(effectifs[i]),
+            "N_i": int(effectifs_cum[i]),
+            "a_i": round(float(amplitudes[i]), 2),
+            "Quantile(s)": " · ".join(annotations),
+        })
+    show_table(pd.DataFrame(rows), max_height=380, caption="Tableau de calcul détaillé")
+
+    st.write("")
+    kpi_row([
+        ("Q1 interpolé (25 %)", fmt_num(res["Q1"], 4),
+         f"classe [{bornes[res['details']['Q1']['idx']]:.2f} ; {bornes[res['details']['Q1']['idx'] + 1]:.2f}["),
+        ("Médiane interpolée (50 %)", fmt_num(res["Me (Q2)"], 4),
+         f"classe [{bornes[res['details']['Me']['idx']]:.2f} ; {bornes[res['details']['Me']['idx'] + 1]:.2f}["),
+        ("Q3 interpolé (75 %)", fmt_num(res["Q3"], 4),
+         f"classe [{bornes[res['details']['Q3']['idx']]:.2f} ; {bornes[res['details']['Q3']['idx'] + 1]:.2f}["),
+    ])
+
+    st.write("")
+    md('<div class="mini-title">Valeurs exactes vs valeurs interpolées</div>')
+    q_exact = {
+        "Q1 (25%)": np.percentile(serie, 25),
+        "Médiane Me (50%)": np.percentile(serie, 50),
+        "D6 (60%)": np.percentile(serie, 60),
+        "Q3 (75%)": np.percentile(serie, 75),
+    }
+    interp = {
+        "Q1 (25%)": res["Q1"],
+        "Médiane Me (50%)": res["Me (Q2)"],
+        "D6 (60%)": res["D6"],
+        "Q3 (75%)": res["Q3"],
+    }
+    comp = pd.DataFrame({
+        "Quantile": list(q_exact.keys()),
+        "Exact": [round(v, 4) for v in q_exact.values()],
+        f"Interpolé ({methode})": [round(interp[k], 4) for k in q_exact],
+    })
+    comp["Écart absolu"] = (comp[f"Interpolé ({methode})"] - comp["Exact"]).round(4)
+    comp["Écart relatif (%)"] = (
+        (comp["Écart absolu"].abs() / comp["Exact"].abs().replace(0, np.nan)) * 100
+    ).round(2)
+    show_table(comp, max_height=300)
+    download_csv(comp, f"interpolation_{methode}.csv",
+                 "📥 Exporter la comparaison (CSV)", key="dl_interp")
+
+    fig_int = go.Figure()
+    fig_int.add_trace(go.Histogram(
+        x=serie,
+        xbins=dict(start=bornes[0], end=bornes[-1],
+                   size=float(amplitudes[0]) if len(amplitudes) else None),
+        name="Effectifs",
+        marker=dict(color="rgba(129, 140, 248, 0.55)",
+                    line=dict(color=THEME["chart"]["pie_line"], width=1.2)),
+    ))
+    fig_int.add_vrect(
+        x0=res["Q1"], x1=res["Q3"],
+        fillcolor="rgba(99, 102, 241, 0.16)", layer="below", line_width=0,
+        annotation_text=f"IQR = {fmt_num(res['IQR (Q3 - Q1)'])}",
+        annotation_position="top left",
+    )
+    fig_int.add_vline(x=res["Q1"], line_width=2, line_dash="dash",
+                      line_color=THEME["css"]["warning"],
+                      annotation_text=f"Q1 = {fmt_num(res['Q1'])}")
+    fig_int.add_vline(x=res["Me (Q2)"], line_width=2,
+                      line_color=THEME["css"]["danger"],
+                      annotation_text=f"Me = {fmt_num(res['Me (Q2)'])}")
+    fig_int.add_vline(x=res["Q3"], line_width=2, line_dash="dash",
+                      line_color=THEME["chart"]["colorway"][5],
+                      annotation_text=f"Q3 = {fmt_num(res['Q3'])}")
+    plot(fig_int, height=430, title="Quantiles déterminés par interpolation")
+
+# -----------------------------------------------------------------------------
+# SECTION 5 — Courbe cumulative & quantiles
+# -----------------------------------------------------------------------------
+elif section == 5:
+    md(section_head("📈", "Courbe cumulative & quantiles",
+                    "Lecture graphique de Q1, Me, D6 et Q3 sur l’ogive des fréquences cumulées."))
+
+    st.markdown(
+        "Pour lire un quantile $Q_p$ sur l’ogive : on trace l’horizontale à la hauteur "
+        "$p$, on repère l’intersection avec la courbe, puis on projette verticalement "
+        "sur l’axe des abscisses."
+    )
+
+    serie = df_actuel[colonne_selectionnee].dropna()
+    if not callout_num(serie):
+        st.stop()
+
+    methode_ogive = st.selectbox("Règle de discrétisation (ogive)",
+                                 ["sturges", "yule", "fd"], index=0)
+    bornes, f_cum, quantiles_og = courbe_cumulative_quantiles(serie, methode_ogive)
+
+    tab_quantiles = pd.DataFrame([
+        {"Quantile": "Q1", "Fréquence cumulée": 0.25,
+         "Valeur": round(quantiles_og["Q1 (25%)"], 4),
+         "Interprétation": f"25 % des individus ont {colonne_selectionnee} ≤ {quantiles_og['Q1 (25%)']:.2f}"},
+        {"Quantile": "Q2 = Me", "Fréquence cumulée": 0.50,
+         "Valeur": round(quantiles_og["Q2 - Médiane (50%)"], 4),
+         "Interprétation": f"50 % des individus ont {colonne_selectionnee} ≤ {quantiles_og['Q2 - Médiane (50%)']:.2f}"},
+        {"Quantile": "D6", "Fréquence cumulée": 0.60,
+         "Valeur": round(quantiles_og["D6 (60%)"], 4),
+         "Interprétation": f"60 % des individus ont {colonne_selectionnee} ≤ {quantiles_og['D6 (60%)']:.2f}"},
+        {"Quantile": "Q3", "Fréquence cumulée": 0.75,
+         "Valeur": round(quantiles_og["Q3 (75%)"], 4),
+         "Interprétation": f"75 % des individus ont {colonne_selectionnee} ≤ {quantiles_og['Q3 (75%)']:.2f}"},
+    ])
+    show_table(tab_quantiles, max_height=300, caption="Tableau récapitulatif des quantiles")
+
+    fig_og = go.Figure()
+    fig_og.add_trace(go.Scatter(
+        x=bornes[1:], y=f_cum,
+        mode="lines+markers",
+        name="Courbe cumulative",
+        line=dict(color=THEME["chart"]["colorway"][1], width=3),
+        fill="tozeroy",
+        fillcolor="rgba(6, 182, 212, 0.10)",
+    ))
+
+    cibles = {
+        "Q1 (25%)": (THEME["css"]["warning"], 0.25, "Q1"),
+        "Q2 - Médiane (50%)": (THEME["css"]["danger"], 0.50, "Me"),
+        "D6 (60%)": (THEME["chart"]["colorway"][4], 0.60, "D6"),
+        "Q3 (75%)": (THEME["chart"]["colorway"][5], 0.75, "Q3"),
+    }
+    for nom, (color, p_value, short) in cibles.items():
+        valeur = quantiles_og[nom]
+        fig_og.add_trace(go.Scatter(
+            x=[bornes[0], valeur], y=[p_value, p_value],
+            mode="lines", line=dict(color=color, width=1.5, dash="dash"),
+            showlegend=False, hoverinfo="skip",
+        ))
+        fig_og.add_trace(go.Scatter(
+            x=[valeur, valeur], y=[0, p_value],
+            mode="lines", line=dict(color=color, width=1.5, dash="dot"),
+            showlegend=False, hoverinfo="skip",
+        ))
+        fig_og.add_trace(go.Scatter(
+            x=[valeur], y=[p_value],
+            mode="markers+text",
+            marker=dict(size=11, color=color,
+                        line=dict(color=THEME["chart"]["pie_line"], width=2)),
+            text=[f"{short} = {valeur:.2f}"],
+            textposition="top left",
+            name=short,
+        ))
+
+    fig_og.update_layout(yaxis=dict(range=[0, 1.05], title="Fréquence cumulée"))
+    plot(fig_og, height=480, title="Lecture graphique des quantiles sur l’ogive")
+
+    # Interprétation automatique
+    moyenne = serie.mean()
+    mediane = serie.median()
+    quartiles = np.percentile(serie, [25, 75])
+    iqr = quartiles[1] - quartiles[0]
+    d6 = np.percentile(serie, 60)
+    ecart_type = serie.std(ddof=1)
+
+    if ecart_type == 0:
+        symetrie = "Distribution <b>dégénérée</b> (écart-type nul)."
+    elif abs(moyenne - mediane) < 0.1 * ecart_type:
+        symetrie = "Distribution <b>quasi symétrique</b> (moyenne ≈ médiane)."
+    elif moyenne > mediane:
+        symetrie = "Distribution <b>asymétrique à droite</b> (moyenne &gt; médiane)."
+    else:
+        symetrie = "Distribution <b>asymétrique à gauche</b> (moyenne &lt; médiane)."
+
+    dispersion = (
+        "Données <b>concentrées</b> autour de la médiane (IQR &lt; écart-type)."
+        if iqr < ecart_type
+        else "Données <b>dispersées</b> dans les 50 % centraux (IQR &gt; écart-type)."
+    )
+
+    md(callout(
+        "Interprétation automatique",
+        f"• <b>Forme :</b> {symetrie}<br>"
+        f"• <b>Dispersion centrale :</b> {dispersion} "
+        f"(IQR = {fmt_num(iqr)}, s = {fmt_num(ecart_type)})<br>"
+        f"• <b>Queue supérieure :</b> D6 − Me = {fmt_num(d6 - mediane)}.",
+        "success", "🧠",
+    ))
+
+# -----------------------------------------------------------------------------
+# SECTION 6 — Tukey & points aberrants
+# -----------------------------------------------------------------------------
+elif section == 6:
+    md(section_head("📦", f"Diagramme de Tukey — {colonne_selectionnee}",
+                    "Boîte à moustaches, bornes de Tukey et détection des points aberrants."))
+
+    st.markdown(
+        "Bornes de Tukey : $L_{inf} = Q_1 - 1{,}5 \\times IQR$ et "
+        "$L_{sup} = Q_3 + 1{,}5 \\times IQR$. Les points situés hors de ces bornes "
+        "sont déclarés aberrants ; ils sont *extrêmes* au-delà de $3 \\times IQR$."
+    )
+
+    serie = df_actuel[colonne_selectionnee].dropna()
+    if not callout_num(serie):
+        st.stop()
+
+    p_tukey = parametres_tukey(serie)
+    outliers_df = detecter_points_aberrants(df_actuel, colonne_selectionnee)
+
+    kpi_row([
+        ("Borne inférieure (L_inf)", fmt_num(p_tukey["L_inf (Modéré)"]), "Q1 − 1.5 × IQR"),
+        ("Médiane (Q2)", fmt_num(p_tukey["Q2 (Médiane)"]), "ligne centrale"),
+        ("Borne supérieure (L_sup)", fmt_num(p_tukey["L_sup (Modéré)"]), "Q3 + 1.5 × IQR"),
+        ("Points aberrants", f"{len(outliers_df)}", "au-delà des bornes"),
+    ])
+
+    fig_tukey = go.Figure()
+    fig_tukey.add_trace(go.Box(
+        y=serie,
+        name=colonne_selectionnee,
+        boxpoints="all",
+        jitter=0.35,
+        pointpos=-1.7,
+        marker=dict(color=THEME["chart"]["colorway"][1], size=6),
+        line=dict(color=THEME["chart"]["colorway"][0], width=2),
+        fillcolor="rgba(99, 102, 241, 0.25)",
+    ))
+    fig_tukey.add_hline(y=p_tukey["L_inf (Modéré)"], line_dash="dash",
+                        line_color=THEME["css"]["warning"],
+                        annotation_text=f"L_inf = {fmt_num(p_tukey['L_inf (Modéré)'])}")
+    fig_tukey.add_hline(y=p_tukey["L_sup (Modéré)"], line_dash="dash",
+                        line_color=THEME["css"]["warning"],
+                        annotation_text=f"L_sup = {fmt_num(p_tukey['L_sup (Modéré)'])}")
+    fig_tukey.add_hline(y=p_tukey["Moyenne"], line_dash="dot",
+                        line_color=THEME["chart"]["colorway"][4],
+                        annotation_text=f"Moyenne = {fmt_num(p_tukey['Moyenne'])}")
+    plot(fig_tukey, height=450, title="Diagramme de Tukey annoté", showlegend=False)
+
+    st.write("")
+    md('<div class="mini-title">Points aberrants identifiés</div>')
+    if len(outliers_df) > 0:
+        show_table(outliers_df, max_height=300)
+    else:
+        md(callout("Aucun point aberrant",
+                   "Aucune observation ne sort des bornes de Tukey (1.5 × IQR).",
+                   "success", "✅"))
+
+    with st.expander("🔬 Comparaison Tukey vs Z-score", expanded=False):
+        st.markdown(
+            "> Le **Z-score** suppose une distribution approximativement normale et reste "
+            "sensible aux valeurs extrêmes. Le critère de **Tukey**, fondé sur l’IQR, est "
+            "robuste et ne fait aucune hypothèse sur la distribution."
+        )
+        seuil_z = st.slider("Seuil |Z|", 2.0, 4.0, 3.0, 0.1)
+        z_values = z_scores(serie).abs()
+        outliers_z = serie[z_values > seuil_z]
+        md(callout(
+            "Résultat Z-score",
+            f"Points détectés avec |Z| &gt; {seuil_z:.1f} : <b>{len(outliers_z)}</b>.",
+            "info", "🔎",
+        ))
+        if len(outliers_z) > 0:
+            show_table(
+                df_actuel.loc[outliers_z.index].reset_index(),
+                max_height=300,
             )
-            fig_multi_box.update_layout(height=450)
-            st.plotly_chart(fig_multi_box, use_container_width=True)
-        else:
-            st.info("Aucune variable numérique disponible.")
 
-    with tab_syn2:
-        cols_qual = [c for c in df_actuel.columns if not np.issubdtype(df_actuel[c].dtype, np.number) or c.upper() == 'ID']
-        cols_qual = [c for c in cols_qual if c.upper() != 'ID']
-        if cols_qual:
-            for cq in cols_qual:
-                st.markdown(f"#### Variable : `{cq}`")
-                st.dataframe(tableau_qualitatif(df_actuel, cq), use_container_width=True)
-        else:
-            st.info("Aucune variable qualitative dans le dataset.")
+# -----------------------------------------------------------------------------
+# SECTION 7 — Discret vers continu
+# -----------------------------------------------------------------------------
+elif section == 7:
+    md(section_head("🔄", "Transformation discret → continu",
+                    "Regroupement d’une variable quantitative en classes, selon les trois règles du TP."))
 
-    with tab_syn3:
+    serie = df_actuel[colonne_selectionnee].dropna()
+    if not callout_num(serie):
+        st.stop()
+
+    meth_t = st.radio("Règle de discrétisation",
+                      ["sturges", "yule", "fd"], index=0, horizontal=True)
+    bornes, nb_k = {
+        "sturges": creer_classes_sturges,
+        "yule": creer_classes_yule,
+        "fd": creer_classes_freedman_diaconis,
+    }[meth_t](serie)
+    nom_m = {"sturges": "Sturges", "yule": "Yule", "fd": "Freedman–Diaconis"}[meth_t]
+
+    labels_cut = [f"[{bornes[i]:.2f} – {bornes[i + 1]:.2f}]" for i in range(len(bornes) - 1)]
+    df_transf = df_actuel.copy()
+    df_transf[f"{colonne_selectionnee}_continu"] = pd.cut(
+        serie, bins=bornes, include_lowest=True, labels=labels_cut
+    )
+
+    counts = df_transf[f"{colonne_selectionnee}_continu"].value_counts().sort_index()
+    tab_res = pd.DataFrame({
+        "Classe": counts.index,
+        "Effectif": counts.values,
+        "Fréquence": np.round(counts.values / len(serie), 4),
+        "Fréquence (%)": np.round(counts.values / len(serie) * 100, 2),
+    })
+
+    left, right = st.columns([1.15, 1.35], gap="large")
+    with left:
+        md('<div class="mini-title">Tableau discrétisé</div>')
+        show_table(tab_res, max_height=360,
+                   caption=f"{nom_m} — {nb_k} classes")
+        download_csv(tab_res, f"discretisation_{meth_t}.csv",
+                     "📥 Exporter le tableau (CSV)", key="dl_cut")
+
+    with right:
+        md('<div class="mini-title">Distribution par classe</div>')
+        fig_cut = px.bar(
+            tab_res,
+            x="Classe",
+            y="Effectif",
+            text="Effectif",
+            color="Classe",
+            color_discrete_sequence=THEME["chart"]["colorway"],
+        )
+        fig_cut.update_traces(textposition="outside")
+        fig_cut.update_layout(showlegend=False)
+        plot(fig_cut, height=360, title=f"Discrétisation de {colonne_selectionnee} ({nom_m})")
+
+    with st.expander("👀 Voir le dataset avec la colonne discrétisée"):
+        show_table(
+            df_transf[[colonne_selectionnee, f"{colonne_selectionnee}_continu"]].head(20),
+            max_height=380,
+        )
+
+# -----------------------------------------------------------------------------
+# SECTION 8 — Opération inverse
+# -----------------------------------------------------------------------------
+elif section == 8:
+    md(section_head("↩️", "Opération inverse : graphique → tableau",
+                    "Reconstituer effectifs, fréquences et type de variable depuis un graphique."))
+
+    mode_inverse = st.selectbox(
+        "Type de graphique source",
+        [
+            "12.1 · Diagramme circulaire",
+            "12.2 · Courbe en escalier",
+            "12.3 · Histogramme",
+        ],
+        key="inv_mode",
+    )
+
+    if "circulaire" in mode_inverse:
+        md(callout("Exemple de la fiche",
+                   "Variable <b>Genre</b>, population 50, catégories M / F, "
+                   "pourcentages 50 % / 50 %.", "info", "🥧"))
+        col1, col2 = st.columns(2, gap="large")
+        with col1:
+            nom_var = st.text_input("Nom de la variable", "Genre", key="inv_var_pie")
+            population = st.number_input("Population totale (n)", min_value=1,
+                                         value=50, step=1, key="inv_pop_pie")
+        with col2:
+            cats_raw = st.text_input("Catégories (séparées par des virgules)", "M, F",
+                                     key="inv_cats")
+            pct_raw = st.text_input("Pourcentages correspondants (%)", "50, 50",
+                                    key="inv_pcts")
+
+        try:
+            cats = [c.strip() for c in cats_raw.split(",") if c.strip()]
+            pcts = [float(p.strip().replace(",", ".")) for p in pct_raw.split(",") if p.strip()]
+            if len(cats) != len(pcts):
+                md(callout("Saisie incohérente",
+                           "Le nombre de catégories doit égaler le nombre de pourcentages.",
+                           "danger", "⛔"))
+            else:
+                effectifs = [round(p * population / 100) for p in pcts]
+                ajustement = population - sum(effectifs)
+                if ajustement != 0:
+                    effectifs[-1] += ajustement
+                frequences = [e / population for e in effectifs]
+                tab_reconst = pd.DataFrame({
+                    "Modalité": cats,
+                    "Pourcentage (%)": pcts,
+                    "Effectif reconstitué (n_i)": effectifs,
+                    "Fréquence (f_i)": np.round(frequences, 4),
+                    "Fréquence cumulée": np.round(np.cumsum(frequences), 4),
+                })
+                md(callout("Tableau reconstitué",
+                           f"Variable <b>{esc(nom_var)}</b> · population <b>{population}</b> · "
+                           f"type <b>qualitative</b>.", "success", "✅"))
+                show_table(tab_reconst, max_height=320)
+                fig_rec = px.pie(tab_reconst, names="Modalité",
+                                 values="Effectif reconstitué (n_i)", hole=0.4)
+                plot(fig_rec, height=360, title=f"Contrôle visuel — {nom_var}")
+        except Exception as exc:  # noqa: BLE001
+            md(callout("Erreur de saisie", esc(exc), "danger", "⛔"))
+
+    elif "escalier" in mode_inverse:
+        md(callout("Exemple de la fiche",
+                   "Variable <b>Âge</b>, n = 50, x = [20, 22, 24, 26, 28], "
+                   "F(x) = [0.2, 0.4, 0.7, 0.85, 1.0].", "info", "🪜"))
+        col1, col2 = st.columns(2, gap="large")
+        with col1:
+            nom_var = st.text_input("Nom de la variable", "Age", key="inv_var_step")
+            population = st.number_input("Population totale (n)", min_value=1,
+                                         value=50, step=1, key="inv_pop_step")
+        with col2:
+            x_raw = st.text_input("Valeurs x_i", "20, 22, 24, 26, 28", key="inv_x")
+            fcum_raw = st.text_input("Fréquences cumulées F(x)", "0.2, 0.4, 0.7, 0.85, 1.0",
+                                     key="inv_fcum")
+
+        try:
+            x_vals = [float(v.strip()) for v in x_raw.split(",") if v.strip()]
+            f_cum_vals = np.array([float(v.strip()) for v in fcum_raw.split(",") if v.strip()])
+            if len(x_vals) != len(f_cum_vals):
+                md(callout("Saisie incohérente",
+                           "Les listes x_i et F(x) doivent avoir la même longueur.",
+                           "danger", "⛔"))
+            else:
+                f_ind = np.diff(np.concatenate([[0.0], f_cum_vals]))
+                effectifs = [round(f * population) for f in f_ind]
+                ajustement = population - sum(effectifs)
+                if ajustement != 0:
+                    effectifs[-1] += ajustement
+
+                tab_esc = pd.DataFrame({
+                    "Valeur / Modalité (x_i)": x_vals,
+                    "Effectif reconstitué (n_i)": effectifs,
+                    "Fréquence (f_i)": np.round(np.array(effectifs) / population, 4),
+                    "Fréquence cumulée F(x)": np.round(f_cum_vals, 4),
+                })
+                est_discret = all(float(v).is_integer() for v in x_vals)
+                type_txt = "quantitative discrète" if est_discret else "quantitative continue (classes)"
+                md(callout("Tableau reconstitué",
+                           f"Variable <b>{esc(nom_var)}</b> · population <b>{population}</b> · "
+                           f"type <b>{type_txt}</b>.", "success", "✅"))
+                show_table(tab_esc, max_height=320)
+        except Exception as exc:  # noqa: BLE001
+            md(callout("Erreur de saisie", esc(exc), "danger", "⛔"))
+
+    else:
+        md(callout("Exemple de la fiche",
+                   "Variable <b>Note_Stats</b>, bornes [8, 10, 12, 14, 16, 18, 20], "
+                   "effectifs [5, 8, 12, 15, 7, 3].", "info", "📊"))
+        col1, col2 = st.columns(2, gap="large")
+        with col1:
+            nom_var = st.text_input("Nom de la variable", "Note_Stats", key="inv_var_hist")
+            bornes_raw = st.text_input("Bornes des classes",
+                                       "8, 10, 12, 14, 16, 18, 20", key="inv_bornes")
+        with col2:
+            eff_raw = st.text_input("Effectifs par classe (n_i)", "5, 8, 12, 15, 7, 3",
+                                    key="inv_effs")
+
+        try:
+            bornes_list = [float(b.strip()) for b in bornes_raw.split(",") if b.strip()]
+            eff_list = [int(float(e.strip())) for e in eff_raw.split(",") if e.strip()]
+            if len(bornes_list) - 1 != len(eff_list):
+                md(callout("Saisie incohérente",
+                           "Le nombre de classes (bornes − 1) doit égaler le nombre d’effectifs.",
+                           "danger", "⛔"))
+            else:
+                population = sum(eff_list)
+                frequences = [e / population for e in eff_list] if population else eff_list
+                labels = [
+                    f"[{bornes_list[i]:.2f} ; {bornes_list[i + 1]:.2f}["
+                    for i in range(len(eff_list))
+                ]
+                tab_hist = pd.DataFrame({
+                    "Classe": labels,
+                    "Effectif (n_i)": eff_list,
+                    "Fréquence (f_i)": np.round(frequences, 4),
+                    "Fréquence (%)": np.round(np.array(frequences) * 100, 2),
+                    "Fréquence cumulée": np.round(np.cumsum(frequences), 4),
+                })
+                md(callout("Tableau reconstitué",
+                           f"Variable <b>{esc(nom_var)}</b> · population <b>{population}</b> · "
+                           f"type <b>quantitative continue</b>.", "success", "✅"))
+                show_table(tab_hist, max_height=320)
+
+                fig_hist_rec = go.Figure()
+                fig_hist_rec.add_trace(go.Bar(
+                    x=labels,
+                    y=eff_list,
+                    marker_color=THEME["chart"]["colorway"][0],
+                    text=eff_list,
+                    textposition="outside",
+                ))
+                plot(fig_hist_rec, height=360, title=f"Histogramme reconstitué — {nom_var}")
+        except Exception as exc:  # noqa: BLE001
+            md(callout("Erreur de saisie", esc(exc), "danger", "⛔"))
+
+# -----------------------------------------------------------------------------
+# SECTION 9 — Synthèse
+# -----------------------------------------------------------------------------
+elif section == 9:
+    md(section_head("🧾", "Synthèse globale",
+                    "Rapport automatique sur l’ensemble des variables et aide-mémoire du TP."))
+
+    tab_num, tab_qual, tab_aide = st.tabs([
+        "Variables numériques",
+        "Variables qualitatives",
+        "Aide-mémoire",
+    ])
+
+    with tab_num:
+        cols_num = [
+            c for c in df_actuel.columns
+            if np.issubdtype(df_actuel[c].dtype, np.number) and str(c).upper() != "ID"
+        ]
+        if not cols_num:
+            md(callout("Aucune variable numérique",
+                       "Le jeu de données ne contient pas de colonne quantitative.",
+                       "warn", "⚠️"))
+        else:
+            rows_num = []
+            for colonne in cols_num:
+                s = df_actuel[colonne].dropna()
+                if len(s) < 2:
+                    continue
+                q1, q2, q3 = np.percentile(s, [25, 50, 75])
+                moyenne = s.mean()
+                rows_num.append({
+                    "Variable": colonne,
+                    "Type": TYPE_META.get(detecter_type_variable(s), TYPE_META["inconnu"])[0],
+                    "n": len(s),
+                    "Moyenne": round(moyenne, 2),
+                    "Médiane": round(q2, 2),
+                    "Écart-type": round(s.std(ddof=1), 2),
+                    "Étendue": round(s.max() - s.min(), 2),
+                    "IQR": round(q3 - q1, 2),
+                    "Min": round(s.min(), 2),
+                    "Max": round(s.max(), 2),
+                    "CV (%)": round(s.std(ddof=1) / moyenne * 100, 2) if moyenne != 0 else np.nan,
+                    "Asymétrie": round(s.skew(), 2) if len(s) > 2 else np.nan,
+                    "Outliers": len(detecter_points_aberrants(df_actuel, colonne)),
+                })
+            df_num = pd.DataFrame(rows_num)
+            show_table(df_num, max_height=420, caption="Synthèse des variables quantitatives")
+            download_csv(df_num, "synthese_numerique.csv",
+                         "📥 Exporter la synthèse (CSV)", key="dl_synth_num")
+
+            fig_box = px.box(
+                df_actuel[cols_num].melt(var_name="Variable", value_name="Valeur").dropna(),
+                x="Variable",
+                y="Valeur",
+                color="Variable",
+                points="outliers",
+                color_discrete_sequence=THEME["chart"]["colorway"],
+            )
+            fig_box.update_layout(showlegend=False)
+            plot(fig_box, height=440, title="Boxplots comparatifs des variables numériques")
+
+    with tab_qual:
+        cols_qual = [
+            c for c in df_actuel.columns
+            if str(c).upper() != "ID"
+            and (not np.issubdtype(df_actuel[c].dtype, np.number)
+                 or df_actuel[c].nunique() <= 10)
+        ]
+        if not cols_qual:
+            md(callout("Aucune variable qualitative",
+                       "Le jeu de données ne contient pas de colonne catégorielle.",
+                       "warn", "⚠️"))
+        else:
+            for colonne in cols_qual:
+                md(f'<div class="mini-title">Variable — {esc(colonne)}</div>')
+                show_table(tableau_qualitatif(df_actuel, colonne), max_height=300)
+
+    with tab_aide:
         st.markdown(r"""
-        ### 📖 Synthèse des Règles de Discrétisation (Section 14)
-        | Règle | Formule | Cas d'Usage |
-        | :--- | :--- | :--- |
-        | **Sturges** | $k = 1 + 3.322 \cdot \log_{10}(n)$ | Distributions proches de la loi normale, $n < 200$ |
-        | **Yule** | $k = 2.5 \cdot n^{1/4}$ | Distributions quelconques, $n < 1000$ |
-        | **Freedman–Diaconis** | $h = \frac{2 \cdot \text{IQR}}{n^{1/3}}$, $k = \lceil \frac{\max - \min}{h} \rceil$ | Robuste aux valeurs aberrantes (outliers) |
-        | **Tukey (Détection)** | $L = Q \pm 1.5 \times \text{IQR}$ | Détection robuste des points aberrants |
+#### Règles de discrétisation
 
-        ### 📖 Synthèse des Paramètres Statistiques (Section 15)
-        | Catégorie | Paramètre | Signification & Rôle |
-        | :--- | :--- | :--- |
-        | **Position** | Moyenne $\bar{x}$ | Centre de gravité, sensible aux valeurs extrêmes |
-        | **Position** | Médiane $Me$ | Valeur séparant l'échantillon en deux moitiés égales (50% / 50%), robuste |
-        | **Position** | Mode $Mo$ | Valeur ou classe ayant le plus fort effectif |
-        | **Dispersion** | Étendue $E$ | Amplitude globale $x_{max} - x_{min}$ |
-        | **Dispersion** | IQR ($Q_3 - Q_1$) | Dispersion des 50% d'individus centraux, insensible aux outliers |
-        | **Dispersion** | Écart-type $s$ | Dispersion quadratique moyenne autour de la moyenne |
-        | **Dispersion** | Coeff. de Variation $CV$ | Dispersion relative : $s / \bar{x} \times 100\%$ |
-        | **Forme** | Asymétrie (Skewness $\gamma_1$) | $\gamma_1 > 0$ étalé à droite, $\gamma_1 < 0$ étalé à gauche, $\gamma_1 \approx 0$ symétrique |
-        | **Forme** | Aplatissement (Kurtosis) | Degré de concentration autour du centre comparé à la loi normale |
-        """)
+| Règle | Formule | Cas d’usage |
+| :--- | :--- | :--- |
+| **Sturges** | $k = 1 + 3{,}322 \cdot \log_{10}(n)$ | Distributions proches de la normale, $n < 200$ |
+| **Yule** | $k = 2{,}5 \cdot n^{1/4}$ | Distributions quelconques, $n < 1000$ |
+| **Freedman–Diaconis** | $h = \dfrac{2 \cdot IQR}{n^{1/3}}$, $k = \left\lceil \dfrac{\max - \min}{h} \right\rceil$ | Robuste aux valeurs aberrantes |
+| **Tukey** | $L = Q \pm 1{,}5 \times IQR$ | Détection des points aberrants |
+
+#### Paramètres statistiques
+
+| Catégorie | Paramètre | Interprétation |
+| :--- | :--- | :--- |
+| **Position** | Moyenne $\bar{x}$ | Centre de gravité, sensible aux valeurs extrêmes |
+| **Position** | Médiane $Me$ | Valeur centrale robuste (50 / 50) |
+| **Position** | Mode $Mo$ | Valeur ou classe de plus fort effectif |
+| **Dispersion** | Étendue $E$ | $x_{max} - x_{min}$ |
+| **Dispersion** | IQR | $Q_3 - Q_1$, dispersion des 50 % centraux |
+| **Dispersion** | Écart-type $s$ | Dispersion quadratique moyenne |
+| **Dispersion** | $CV$ | $s / \bar{x} \times 100$ (dispersion relative) |
+| **Quantiles** | Quartiles / déciles | Division en 4 ou 10 parties égales |
+| **Forme** | Asymétrie $\gamma_1$ | $>0$ étalée à droite, $<0$ à gauche |
+| **Forme** | Aplatissement | Concentration autour de la moyenne |
+""")
+
+# -----------------------------------------------------------------------------
+# SECTION 10 — Exercices supplémentaires (section 16 de la fiche)
+# -----------------------------------------------------------------------------
+elif section == 10:
+    md(section_head("🧪", "Exercices supplémentaires",
+                    "Mise en pratique des huit exercices de la section 16 de la fiche TP."))
+
+    ex1, ex2, ex3, ex4, ex5, ex6, ex7, ex8 = st.tabs([
+        "1 · Dataset réel",
+        "2 · Trois règles",
+        "3 · Outliers",
+        "4 · Interpolation",
+        "5 · Déciles",
+        "6 · Image → tableau",
+        "7 · Explorateur",
+        "8 · Tukey par groupe",
+    ])
+
+    # ---- Exercice 1 : dataset réel ----
+    with ex1:
+        md(callout("Énoncé",
+                   "Chargez un dataset réel (<i>titanic.csv</i>, <i>iris.csv</i>…) et "
+                   "appliquez-lui le dashboard complet.", "info", "📘"))
+        fichier_ex = st.file_uploader("Dataset réel (CSV / Excel)",
+                                      type=["csv", "xlsx", "xls"], key="ex1_file")
+        df_ex = df_actuel
+        nom_ex = nom_source
+        if fichier_ex is not None:
+            try:
+                loaded = read_uploaded(fichier_ex)
+                if loaded is not None and not loaded.empty:
+                    df_ex, nom_ex = loaded, fichier_ex.name
+            except Exception as exc:  # noqa: BLE001
+                md(callout("Lecture impossible", esc(exc), "danger", "⛔"))
+
+        md(callout("Jeu de données analysé",
+                   f"<b>{esc(nom_ex)}</b> — {df_ex.shape[0]} lignes × {df_ex.shape[1]} colonnes.",
+                   "success", "📁"))
+
+        types_rows = []
+        for colonne in df_ex.columns:
+            detected = detecter_type_variable(df_ex[colonne])
+            label = TYPE_META.get(detected, TYPE_META["inconnu"])[0]
+            types_rows.append({"Variable": colonne, "Type détecté": label})
+        show_table(pd.DataFrame(types_rows), max_height=320, caption="Classification automatique")
+
+        for colonne in df_ex.columns:
+            detected = detecter_type_variable(df_ex[colonne])
+            with st.expander(f"📌 {colonne} — {TYPE_META.get(detected, TYPE_META['inconnu'])[0]}"):
+                if "qualitative" in detected:
+                    show_table(tableau_qualitatif(df_ex, colonne), max_height=320)
+                elif np.issubdtype(df_ex[colonne].dtype, np.number) and df_ex[colonne].dropna().shape[0] >= 3:
+                    s = df_ex[colonne].dropna()
+                    show_table(parametres_table(s), max_height=420)
+                    if detected == "quantitative_continue":
+                        bornes_ex = _bornes(s, "sturges")
+                        fig_ex1 = px.histogram(s, nbins=len(bornes_ex) - 1,
+                                               color_discrete_sequence=[THEME["chart"]["colorway"][0]])
+                        plot(fig_ex1, height=320, title=f"Distribution — {colonne}")
+                    else:
+                        counts = s.value_counts().sort_index()
+                        fig_ex1 = px.bar(x=counts.index, y=counts.values,
+                                         color_discrete_sequence=[THEME["chart"]["colorway"][2]])
+                        fig_ex1.update_layout(xaxis_title=colonne,
+                                              yaxis_title="Effectif", showlegend=False)
+                        plot(fig_ex1, height=320, title=f"Effectifs — {colonne}")
+                else:
+                    md(callout("Variable non exploitable",
+                               "Effectif insuffisant pour cette variable.", "warn", "⚠️"))
+
+    # ---- Exercice 2 : comparaison des trois règles ----
+    with ex2:
+        md(callout("Énoncé",
+                   "Pour une même variable continue, comparez les histogrammes obtenus "
+                   "avec les trois règles. Quelle méthode donne la meilleure visualisation ?",
+                   "info", "📘"))
+        cols_cont = [
+            c for c in df_actuel.columns
+            if np.issubdtype(df_actuel[c].dtype, np.number) and df_actuel[c].nunique() > 10
+        ]
+        if not cols_cont:
+            md(callout("Aucune variable continue",
+                       "Importez un dataset contenant une variable mesurée.", "warn", "⚠️"))
+        else:
+            var_cont = st.selectbox("Variable continue", cols_cont, key="ex2_var")
+            s_cont = df_actuel[var_cont].dropna()
+
+            regles = [
+                ("sturges", "Sturges", creer_classes_sturges),
+                ("yule", "Yule", creer_classes_yule),
+                ("fd", "Freedman–Diaconis", creer_classes_freedman_diaconis),
+            ]
+            lignes = []
+            colonnes_fig = st.columns(3, gap="large")
+            for colonne_fig, (code, nom, fonction) in zip(colonnes_fig, regles):
+                bornes_r, k_r = fonction(s_cont)
+                amplitude = (bornes_r[-1] - bornes_r[0]) / max(k_r, 1)
+                lignes.append({
+                    "Règle": nom,
+                    "Classes (k)": k_r,
+                    "Amplitude (h)": round(amplitude, 3),
+                    "n / k": round(len(s_cont) / max(k_r, 1), 2),
+                })
+                with colonne_fig:
+                    fig_r = px.histogram(
+                        s_cont, nbins=k_r,
+                        color_discrete_sequence=[THEME["chart"]["colorway"][regles.index((code, nom, fonction))]],
+                    )
+                    fig_r.update_traces(
+                        xbins=dict(start=bornes_r[0], end=bornes_r[-1], size=amplitude),
+                        marker_line_color=THEME["chart"]["pie_line"], marker_line_width=1.2,
+                    )
+                    plot(fig_r, height=320, title=f"{nom} · k = {k_r}")
+
+            show_table(pd.DataFrame(lignes), max_height=260,
+                       caption="Caractéristiques des discrétisations")
+            md(callout(
+                "Piste de réponse",
+                "Freedman–Diaconis adapte la largeur de classe à la forme de la distribution "
+                "et reste robuste aux valeurs extrêmes ; Sturges convient aux échantillons "
+                "modérés proches de la normale ; Yule produit souvent un nombre de classes "
+                "intermédiaire.",
+                "info", "💡",
+            ))
+
+    # ---- Exercice 3 : outliers sur N(0,1) ----
+    with ex3:
+        md(callout("Énoncé",
+                   "Générez 100 valeurs suivant $N(0,1)$, injectez manuellement trois "
+                   "outliers (−8, 10, 15), détectez-les avec Tukey puis avec le Z-score, "
+                   "et comparez la robustesse des deux méthodes.", "info", "📘"))
+
+        col_g1, col_g2, col_g3 = st.columns(3)
+        with col_g1:
+            n_sim = st.number_input("Taille de l'échantillon", min_value=20, max_value=5000,
+                                    value=100, step=10, key="ex3_n")
+        with col_g2:
+            seed_sim = st.number_input("Graine aléatoire", min_value=0, max_value=99999,
+                                       value=42, step=1, key="ex3_seed")
+        with col_g3:
+            seuil_z3 = st.slider("Seuil |Z|", 2.0, 4.0, 3.0, 0.1, key="ex3_z")
+
+        generateur = np.random.default_rng(int(seed_sim))
+        valeurs = np.concatenate([generateur.normal(0, 1, int(n_sim)), [-8.0, 10.0, 15.0]])
+        serie_sim = pd.Series(valeurs, name="Simulation N(0,1) + outliers")
+
+        params_sim = parametres_tukey(serie_sim)
+        masque_tukey = (
+            (serie_sim < params_sim["L_inf (Modéré)"])
+            | (serie_sim > params_sim["L_sup (Modéré)"])
+        )
+        out_tukey = serie_sim[masque_tukey]
+        z_sim = z_scores(serie_sim).abs()
+        out_z = serie_sim[z_sim > seuil_z3]
+
+        kpi_row([
+            ("Effectif", f"{len(serie_sim)}", f"{int(n_sim)} valeurs + 3 outliers"),
+            ("Tukey · détectés", f"{len(out_tukey)}", "critère 1.5 × IQR"),
+            (f"Z-score · |Z| > {seuil_z3:.1f}", f"{len(out_z)}", "critère normal"),
+            ("Borne L_sup", fmt_num(params_sim["L_sup (Modéré)"]), "Tukey"),
+        ])
+
+        comparaison = pd.DataFrame({
+            "Méthode": ["Tukey (IQR)", f"Z-score (|Z| > {seuil_z3:.1f})"],
+            "Points détectés": [len(out_tukey), len(out_z)],
+            "Valeurs": [
+                ", ".join(f"{v:g}" for v in out_tukey.values) or "—",
+                ", ".join(f"{v:g}" for v in out_z.values) or "—",
+            ],
+        })
+        show_table(comparaison, max_height=240)
+
+        fig_out = go.Figure()
+        fig_out.add_trace(go.Scatter(
+            x=np.arange(len(serie_sim)), y=serie_sim.values,
+            mode="markers", name="Observations",
+            marker=dict(size=7, color=THEME["chart"]["colorway"][0], opacity=0.75),
+        ))
+        fig_out.add_trace(go.Scatter(
+            x=np.arange(len(serie_sim))[masque_tukey.values],
+            y=serie_sim.values[masque_tukey.values],
+            mode="markers", name="Détectés par Tukey",
+            marker=dict(size=12, color=THEME["css"]["danger"],
+                        symbol="diamond", line=dict(width=1.5, color=THEME["chart"]["pie_line"])),
+        ))
+        fig_out.add_hline(y=params_sim["L_inf (Modéré)"], line_dash="dash",
+                          line_color=THEME["css"]["warning"],
+                          annotation_text="L_inf")
+        fig_out.add_hline(y=params_sim["L_sup (Modéré)"], line_dash="dash",
+                          line_color=THEME["css"]["warning"],
+                          annotation_text="L_sup")
+        fig_out.update_layout(xaxis_title="Indice", yaxis_title="Valeur")
+        plot(fig_out, height=400, title="Outliers injectés — détection de Tukey")
+
+        md(callout(
+            "Conclusion attendue",
+            "Le Z-score, fondé sur la moyenne et l’écart-type, est lui-même tiré vers le haut "
+            "par les valeurs extrêmes : son seuil devient moins discriminant. Le critère de "
+            "Tukey, construit sur des quantiles, est <b>robuste</b> et conserve une bonne "
+            "sensibilité aux outliers.",
+            "success", "🧠",
+        ))
+
+    # ---- Exercice 4 : interpolation ----
+    with ex4:
+        md(callout("Énoncé",
+                   "Construisez l’histogramme d’une variable continue, déterminez Q1, Me et Q3 "
+                   "par interpolation, puis comparez aux valeurs exactes des données brutes.",
+                   "info", "📘"))
+        cols_num4 = [
+            c for c in df_actuel.columns
+            if np.issubdtype(df_actuel[c].dtype, np.number) and df_actuel[c].dropna().shape[0] >= 5
+        ]
+        if not cols_num4:
+            md(callout("Aucune variable numérique", "Importez un dataset adapté.", "warn", "⚠️"))
+        else:
+            var4 = st.selectbox("Variable", cols_num4, key="ex4_var")
+            meth4 = st.radio("Règle", ["sturges", "yule", "fd"], index=0,
+                             horizontal=True, key="ex4_meth")
+            s4 = df_actuel[var4].dropna()
+            res4 = quantiles_par_interpolation(s4, meth4)
+
+            exact4 = {
+                "Q1": float(np.percentile(s4, 25)),
+                "Me": float(np.percentile(s4, 50)),
+                "Q3": float(np.percentile(s4, 75)),
+            }
+            interp4 = {
+                "Q1": res4["Q1"],
+                "Me": res4["Me (Q2)"],
+                "Q3": res4["Q3"],
+            }
+            tab4 = pd.DataFrame({
+                "Quantile": ["Q1", "Me", "Q3"],
+                "Exact (données brutes)": [round(exact4[k], 4) for k in exact4],
+                "Interpolé": [round(interp4[k], 4) for k in interp4],
+            })
+            tab4["Écart"] = (tab4["Interpolé"] - tab4["Exact (données brutes)"]).round(4)
+            tab4["Écart relatif (%)"] = (
+                (tab4["Écart"].abs() / tab4["Exact (données brutes)"].abs().replace(0, np.nan)) * 100
+            ).round(2)
+            show_table(tab4, max_height=260)
+
+            bornes4 = res4["bornes"]
+            fig4 = go.Figure()
+            fig4.add_trace(go.Histogram(
+                x=s4, xbins=dict(start=bornes4[0], end=bornes4[-1],
+                                 size=float(res4["amplitudes"][0]) if len(res4["amplitudes"]) else None),
+                marker=dict(color="rgba(99, 102, 241, 0.55)",
+                            line=dict(color=THEME["chart"]["pie_line"], width=1.2)),
+                name="Effectifs",
+            ))
+            for label, valeur, color in [
+                ("Q1", res4["Q1"], THEME["css"]["warning"]),
+                ("Me", res4["Me (Q2)"], THEME["css"]["danger"]),
+                ("Q3", res4["Q3"], THEME["chart"]["colorway"][5]),
+            ]:
+                fig4.add_vline(x=valeur, line_width=2, line_dash="dash", line_color=color,
+                               annotation_text=f"{label} = {valeur:.2f}")
+            plot(fig4, height=400, title=f"Interpolation — {var4} ({meth4})")
+
+    # ---- Exercice 5 : déciles ----
+    with ex5:
+        md(callout("Énoncé",
+                   "À partir de la courbe cumulative, déterminez D1, D3, D6 et D9, "
+                   "puis interprétez chaque décile.", "info", "📘"))
+        cols_num5 = [
+            c for c in df_actuel.columns
+            if np.issubdtype(df_actuel[c].dtype, np.number) and df_actuel[c].dropna().shape[0] >= 10
+        ]
+        if not cols_num5:
+            md(callout("Aucune variable numérique", "Importez un dataset adapté.", "warn", "⚠️"))
+        else:
+            var5 = st.selectbox("Variable", cols_num5, key="ex5_var")
+            meth5 = st.radio("Règle", ["sturges", "yule", "fd"], index=0,
+                             horizontal=True, key="ex5_meth")
+            s5 = df_actuel[var5].dropna()
+
+            lignes5 = []
+            for k in (1, 3, 6, 9):
+                exact = float(np.percentile(s5, k * 10))
+                interp = quantile_interpole(s5, k / 10, meth5)
+                lignes5.append({
+                    "Décile": f"D{k}",
+                    "Fréquence cumulée": k / 10,
+                    "Exact": round(exact, 4),
+                    "Interpolé": round(interp, 4),
+                    "Interprétation": f"{k * 10} % des individus ont {var5} ≤ {interp:.2f}",
+                })
+            tab5 = pd.DataFrame(lignes5)
+            show_table(tab5, max_height=280)
+
+            bornes5, f_cum5, _ = courbe_cumulative_quantiles(s5, meth5)
+            fig5 = go.Figure()
+            fig5.add_trace(go.Scatter(
+                x=bornes5[1:], y=f_cum5, mode="lines+markers",
+                line=dict(color=THEME["chart"]["colorway"][1], width=3),
+                fill="tozeroy", fillcolor="rgba(6, 182, 212, 0.10)",
+                name="F(x)",
+            ))
+            for k, ligne in zip((1, 3, 6, 9), lignes5):
+                valeur = ligne["Interpolé"]
+                p = k / 10
+                color = THEME["chart"]["colorway"][(k + 1) % 6]
+                fig5.add_trace(go.Scatter(
+                    x=[bornes5[0], valeur], y=[p, p], mode="lines",
+                    line=dict(color=color, width=1.4, dash="dash"),
+                    showlegend=False, hoverinfo="skip",
+                ))
+                fig5.add_trace(go.Scatter(
+                    x=[valeur], y=[p], mode="markers+text",
+                    marker=dict(size=10, color=color),
+                    text=[f"D{k} = {valeur:.2f}"], textposition="top left",
+                    showlegend=False,
+                ))
+            fig5.update_layout(yaxis=dict(range=[0, 1.05], title="Fréquence cumulée"))
+            plot(fig5, height=440, title="Déciles sur la courbe cumulative")
+
+    # ---- Exercice 6 : image -> tableau ----
+    with ex6:
+        md(callout("Énoncé",
+                   "À partir d’un diagramme circulaire fourni en image, estimez les "
+                   "pourcentages (manuellement ou par analyse d’image avec OpenCV) et "
+                   "reconstituez le tableau.", "info", "📘"))
+        md(callout(
+            "Méthode proposée ici",
+            "L’estimation visuelle est reproduite par des curseurs : ajustez la part de "
+            "chaque secteur, l’application normalise les pourcentages puis reconstruit "
+            "effectifs et fréquences.",
+            "info", "🎛️",
+        ))
+
+        col_a, col_b = st.columns([1.2, 1.0], gap="large")
+        with col_a:
+            cats6_raw = st.text_input("Catégories (séparées par des virgules)",
+                                      "M, F, Autre", key="ex6_cats")
+        with col_b:
+            pop6 = st.number_input("Population totale (n)", min_value=1, value=100,
+                                   step=1, key="ex6_pop")
+
+        cats6 = [c.strip() for c in cats6_raw.split(",") if c.strip()][:6]
+        if not cats6:
+            md(callout("Aucune catégorie", "Saisissez au moins une catégorie.", "warn", "⚠️"))
+        else:
+            valeurs6 = []
+            colonnes6 = st.columns(len(cats6))
+            for i, (colonne6, cat) in enumerate(zip(colonnes6, cats6)):
+                with colonne6:
+                    valeurs6.append(st.slider(f"Part — {cat} (%)", 0, 100,
+                                              100 // len(cats6), key=f"ex6_{i}"))
+
+            total = sum(valeurs6)
+            if total == 0:
+                md(callout("Somme nulle", "Réglez au moins un curseur au-dessus de 0.",
+                           "warn", "⚠️"))
+            else:
+                parts = [v / total * 100 for v in valeurs6]
+                effectifs6 = [round(p * pop6 / 100) for p in parts]
+                ajustement = pop6 - sum(effectifs6)
+                if ajustement != 0:
+                    effectifs6[-1] += ajustement
+
+                tab6 = pd.DataFrame({
+                    "Modalité": cats6,
+                    "Part estimée (%)": [round(p, 2) for p in parts],
+                    "Effectif reconstitué (n_i)": effectifs6,
+                    "Fréquence (f_i)": np.round(np.array(effectifs6) / pop6, 4),
+                    "Fréquence cumulée": np.round(np.cumsum(np.array(effectifs6) / pop6), 4),
+                })
+                md(callout("Tableau reconstitué",
+                           f"Population <b>{pop6}</b> · variable <b>qualitative</b>.",
+                           "success", "✅"))
+                show_table(tab6, max_height=300)
+                fig6 = px.pie(tab6, names="Modalité", values="Effectif reconstitué (n_i)",
+                              hole=0.4)
+                plot(fig6, height=360, title="Diagramme circulaire reconstitué")
+
+    # ---- Exercice 7 : explorateur interactif ----
+    with ex7:
+        md(callout("Énoncé",
+                   "Créer un dashboard interactif où l’utilisateur choisit la variable "
+                   "et la méthode de discrétisation.", "info", "📘"))
+        var7 = st.selectbox("Variable", list(df_actuel.columns), key="ex7_var")
+        type7 = detecter_type_variable(df_actuel[var7])
+        md(f'<div style="margin:4px 0 10px;">{badge_html(type7)}</div>')
+        s7 = df_actuel[var7].dropna()
+
+        if "qualitative" in type7:
+            tab7 = tableau_qualitatif(df_actuel, var7)
+            left7, right7 = st.columns(2, gap="large")
+            with left7:
+                show_table(tab7, max_height=320)
+            with right7:
+                fig7 = px.pie(tab7, names="Modalité", values="Effectif (n_i)", hole=0.42)
+                plot(fig7, height=340, title=f"Répartition — {var7}")
+        elif np.issubdtype(df_actuel[var7].dtype, np.number):
+            if type7 == "quantitative_discrete":
+                tab7 = tableau_quantitatif_discret(df_actuel, var7)
+                left7, right7 = st.columns(2, gap="large")
+                with left7:
+                    show_table(tab7, max_height=320)
+                with right7:
+                    fig7 = px.bar(tab7, x="Valeur (x_i)", y="Effectif (n_i)",
+                                  text="Effectif (n_i)",
+                                  color_discrete_sequence=[THEME["chart"]["colorway"][2]])
+                    fig7.update_layout(showlegend=False)
+                    plot(fig7, height=340, title=f"Effectifs — {var7}")
+            else:
+                meth7 = st.radio("Règle de discrétisation", ["sturges", "yule", "fd"],
+                                 index=0, horizontal=True, key="ex7_meth")
+                tab7 = tableau_quantitatif_continu(df_actuel, var7, meth7)
+                left7, right7 = st.columns(2, gap="large")
+                with left7:
+                    show_table(tab7, max_height=340)
+                with right7:
+                    bornes7 = _bornes(s7, meth7)
+                    fig7 = px.histogram(s7, nbins=len(bornes7) - 1,
+                                        color_discrete_sequence=[THEME["chart"]["colorway"][0]])
+                    plot(fig7, height=340, title=f"Histogramme — {meth7}")
+        else:
+            md(callout("Variable non exploitable",
+                       "Cette colonne ne contient pas de données analysables.", "warn", "⚠️"))
+
+    # ---- Exercice 8 : Tukey par groupe ----
+    with ex8:
+        md(callout("Énoncé",
+                   "Construisez un diagramme de Tukey par groupe (ex. Note_Stats selon Genre) "
+                   "et interprétez les différences entre groupes.", "info", "📘"))
+        cols_num8 = [c for c in df_actuel.columns
+                     if np.issubdtype(df_actuel[c].dtype, np.number)]
+        cols_grp8 = [c for c in df_actuel.columns
+                     if c not in cols_num8 and df_actuel[c].nunique() <= 12]
+
+        if not cols_num8 or not cols_grp8:
+            md(callout("Colonnes insuffisantes",
+                       "Il faut au moins une variable quantitative et une variable de groupe "
+                       "(≤ 12 modalités).", "warn", "⚠️"))
+        else:
+            col_y, col_g = st.columns(2)
+            with col_y:
+                var_y = st.selectbox("Variable quantitative", cols_num8, key="ex8_y")
+            with col_g:
+                var_g = st.selectbox("Variable de groupe", cols_grp8, key="ex8_g")
+
+            data8 = df_actuel[[var_y, var_g]].dropna()
+            fig8 = px.box(
+                data8, x=var_g, y=var_y, color=var_g,
+                points="all", color_discrete_sequence=THEME["chart"]["colorway"],
+            )
+            fig8.update_layout(showlegend=False)
+            plot(fig8, height=430, title=f"{var_y} selon {var_g}")
+
+            lignes8 = []
+            for modalite, groupe in data8.groupby(var_g)[var_y]:
+                if len(groupe) < 2:
+                    continue
+                q1, q2, q3 = np.percentile(groupe, [25, 50, 75])
+                lignes8.append({
+                    "Groupe": modalite,
+                    "n": len(groupe),
+                    "Moyenne": round(groupe.mean(), 2),
+                    "Médiane": round(q2, 2),
+                    "Q1": round(q1, 2),
+                    "Q3": round(q3, 2),
+                    "IQR": round(q3 - q1, 2),
+                    "Écart-type": round(groupe.std(ddof=1), 2),
+                })
+            show_table(pd.DataFrame(lignes8), max_height=320,
+                       caption="Statistiques par groupe")
+
+            md(callout(
+                "Lecture",
+                "Un décalage des médianes traduit un effet du groupe ; un IQR très différent "
+                "signale une hétérogénéité de dispersion. Les points isolés au-delà des "
+                "moustaches restent des valeurs à examiner.",
+                "info", "💡",
+            ))
 
 # -----------------------------------------------------------------------------
 # Pied de page
 # -----------------------------------------------------------------------------
-st.markdown("---")
-st.markdown("""
-<div style="text-align: center; color: #64748b; font-size: 0.85rem; padding: 15px 0;">
-    Dashboard Statistique Descriptive • Conforme à la Fiche TP 2025–2026 • Réalisé avec Streamlit, Plotly, Pandas & NumPy
-</div>
-""", unsafe_allow_html=True)
+md(
+    '<div class="foot">'
+    "AutoSTAT · Dashboard statistique — fiche TP 2025–2026 · "
+    "Streamlit · Plotly · Pandas · NumPy"
+    "</div>"
+)
